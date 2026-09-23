@@ -57,7 +57,7 @@ apt install -y python3 python3-pil      # Debian / Ubuntu / 飞牛 fnOS
 ## 快速开始
 
 ```bash
-git clone <本仓库地址> watermark-camera
+git clone https://github.com/Nas-dawn/nas-watermark-camera
 cd watermark-camera
 sudo bash install.sh --app /opt/wmcam --photos /opt/wmcam/photos --port 8335
 ```
