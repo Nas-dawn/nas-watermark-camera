@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a5c8f">
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>水印相机 · 拍照</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{height:100%;overflow:hidden}
+body{font-family:-apple-system,"PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;background:#0b0f14;color:#fff;
+  /* 四边钉在可视区上：不用 vh/dvh —— 老 iOS 与微信内核不认 dvh，写 100vh 会把底栏顶到工具栏后面 */
+  position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:auto;max-height:100%;
+  display:flex;flex-direction:column;overflow:hidden;user-select:none;
+  overscroll-behavior:none;touch-action:manipulation;-webkit-overflow-scrolling:touch}
+/* 顶部 App 栏 */
+.appbar{flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:calc(6px + env(safe-area-inset-top)) 12px 6px;
+  background:#0b0f14;border-bottom:1px solid rgba(255,255,255,.06)}
+.appbar .ic{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:none;background:transparent;color:#e8eef5;border-radius:12px}
+.appbar .ic:active{background:rgba(255,255,255,.09)}
+.appbar .ttl{flex:1;text-align:center;font-size:16px;font-weight:700;letter-spacing:.5px}
+.appbar .ttl span{display:block;font-size:11px;font-weight:400;color:#8aa0b4;margin-top:2px}
+.appbar .exit{font-size:12px;color:#8aa0b4;padding:8px 6px;text-decoration:none}
+/* 版本/环境自证行 */
+.verline{margin:14px 0 2px;padding-top:10px;border-top:1px dashed rgba(0,0,0,.12);font-size:11.5px;color:#98a2b3;line-height:1.7;word-break:break-all}
+/* 相机权限指引 */
+#camGuide{position:fixed;inset:0;z-index:70;background:rgba(4,8,12,.86);display:none;align-items:center;justify-content:center;padding:22px}
+#camGuide .cg-card{background:#111a24;border:1px solid rgba(124,196,255,.3);border-radius:18px;padding:20px 18px;max-width:360px;width:100%;color:#eaf2fa;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+#camGuide h4{margin:0 0 10px;font-size:17px;color:#7cc4ff}
+#camGuide .cg-why{font-size:13px;color:#ffd479;line-height:1.5;margin-bottom:8px}
+#camGuide .cg-steps{font-size:13.5px;line-height:1.75;color:#dbe8f4}
+#camGuide .cg-steps b{color:#7cc4ff}
+#camGuide .cg-note{margin-top:12px;font-size:12px;color:#8aa0b4;line-height:1.6;border-top:1px dashed rgba(255,255,255,.12);padding-top:10px}
+#camGuide .cg-btns{display:flex;gap:10px;margin-top:16px}
+#camGuide button{flex:1;padding:11px;border-radius:12px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.06);color:#eaf2fa;font-size:14px;font-weight:600}
+#camGuide button.p{background:#1a5c8f;border-color:#1a5c8f}
+/* 全屏提示条 */
+}
+#tipbar{position:fixed;left:12px;right:12px;bottom:calc(96px + env(safe-area-inset-bottom));z-index:60;
+  background:rgba(12,18,26,.94);border:1px solid rgba(124,196,255,.35);border-radius:14px;padding:12px 14px;
+  color:#eaf2fa;font-size:13px;line-height:1.55;display:none;box-shadow:0 8px 26px rgba(0,0,0,.45)}
+#tipbar.on{display:block}
+#tipbar b{color:#7cc4ff}
+#tipbar .x{float:right;margin-left:10px;color:#8aa0b4;font-size:16px;line-height:1}
+body.standalone #fsBtn{display:none}   /* 已经是全屏 App 了，不用再点 */
+#stage.tall{min-height:0}
+/* 取景 */
+#stage{position:relative;flex:1 1 auto;background:#000;overflow:hidden;display:flex;align-items:center;justify-content:center;min-height:0;touch-action:none}   /* v26：自己接管手势，否则 iOS 把两指捏合当网页缩放吃掉 */
+#stage video{width:100%;height:100%;object-fit:contain;display:block}
+#recCanvas{display:none}
+#wmCv{position:absolute;touch-action:none;z-index:5}
+.zoomctl{position:absolute;right:8px;top:50%;transform:translateY(-50%);z-index:14;display:flex;flex-direction:column;gap:4px;background:rgba(12,18,26,.5);border:1px solid rgba(255,255,255,.14);border-radius:20px;padding:6px 4px}
+.zoomctl .zbtn{width:42px;height:30px;line-height:30px;text-align:center;border-radius:15px;font-size:11.5px;font-weight:800;color:#dbe7f3;background:rgba(255,255,255,.08);letter-spacing:.2px;user-select:none}
+.zoomctl .zbtn.on{background:#1a5c8f;color:#fff;box-shadow:0 2px 8px rgba(26,92,143,.55)}
+.zoomctl .zbtn.off{opacity:.32}
+.zoomctl .zbtn:active{transform:scale(.94)}
+
+/* 取景上的小胶囊 */
+.chipbar{position:absolute;top:12px;left:12px;right:12px;display:flex;gap:8px;align-items:center;z-index:15;pointer-events:none}
+.chip{pointer-events:auto;display:flex;align-items:center;gap:7px;background:rgba(12,18,26,.66);border:1px solid rgba(255,255,255,.14);
+  color:#eaf2fa;padding:8px 13px;border-radius:999px;font-size:13px;font-weight:600;backdrop-filter:blur(8px)}
+.chip:active{background:rgba(255,255,255,.16)}
+.chip b{font-weight:800;color:#7cc4ff}
+/* 底部 App 操作栏 */
+.bottombar{flex:0 0 auto;background:#0b0f14;border-top:1px solid rgba(255,255,255,.06);
+  padding:12px 18px calc(14px + env(safe-area-inset-bottom));display:flex;align-items:center;justify-content:space-between}
+.bottombar .side{width:64px;display:flex;justify-content:center}
+.thumb{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);
+  display:flex;align-items:center;justify-content:center;color:#c7d6e4;overflow:hidden;background-size:cover;background-position:center}
+.thumb.has{border-color:#3b82f6}
+.bb-c{display:flex;flex-direction:column;align-items:center;gap:9px}
+.modes{display:flex;background:rgba(255,255,255,.09);border-radius:999px;padding:3px}
+.modes div{padding:6px 20px;border-radius:999px;font-size:13px;font-weight:700;color:#9fb0c0}
+.modes div.on{background:#fff;color:#101418}
+#shutter{width:80px;height:80px;border-radius:50%;background:transparent;border:4px solid #fff;
+  display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 1px rgba(255,255,255,.25)}
+#shutter .in{width:62px;height:62px;border-radius:50%;background:#fff;transition:all .15s}
+#shutter:active .in{transform:scale(.92)}
+#shutter.vid .in{background:#ff4d4f}                                  /* v18：录像模式 → 内圆变红 */
+#shutter.rec .in{animation:recPulse 1.1s ease-in-out infinite}          /* v18：录制中 → 红圆呼吸，不再用红方块 */
+@keyframes recPulse{0%,100%{transform:scale(1)}50%{transform:scale(.82)}}
+#timer{display:none;position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:16;background:rgba(220,40,40,.86);
+  padding:5px 14px;border-radius:999px;font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+#timer.rec{display:flex;align-items:center;gap:6px}
+#timer i{width:9px;height:9px;border-radius:50%;background:#fff;display:block}
+.hint{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);color:rgba(255,255,255,.9);font-size:11.5px;
+  background:rgba(0,0,0,.5);padding:5px 12px;border-radius:999px;z-index:6;pointer-events:none;white-space:nowrap}
+/* 设置面板（底部抽屉） */
+#sheet{display:none;position:absolute;left:0;right:0;bottom:0;background:#fff;color:#222;border-radius:20px 20px 0 0;
+  padding:10px 14px calc(18px + env(safe-area-inset-bottom));z-index:40;box-shadow:0 -8px 30px rgba(0,0,0,.5);
+  max-height:80vh;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#sheet .handle{width:44px;height:4px;border-radius:99px;background:#d7dde5;margin:2px auto 10px}
+#sheet .sTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px}
+#sheet .sTop b{font-size:16px;color:#101828}
+#sheet .sTop .x{font-size:13px;color:#667085;padding:6px 10px;background:#f2f4f7;border-radius:999px}
+#sheet .sec{font-size:12px;color:#667085;margin:14px 0 7px;font-weight:700;display:flex;justify-content:space-between}
+#sheet .sec span{color:#1d5bd8;font-weight:800}
+#sheet .tabs{display:flex;gap:6px;background:#f2f4f7;border-radius:12px;padding:4px;margin:6px 0 12px}
+#sheet .tabs div{flex:1;text-align:center;padding:10px 4px;border-radius:9px;font-size:14px;font-weight:700;color:#5b6b7e}
+#sheet .tabs div.on{background:#fff;color:#12306e;box-shadow:0 1px 5px rgba(16,24,40,.14)}
+#sheet .pane{display:none}
+#sheet .pane.on{display:block}
+#sheet .paneTip{font-size:11.5px;color:#98a2b3;margin-top:12px;text-align:center;line-height:1.5}
+#sheet .cats{display:flex;gap:7px;overflow-x:auto;padding:2px 0 10px;-webkit-overflow-scrolling:touch}
+#sheet .cats div{flex:0 0 auto;padding:8px 14px;border-radius:999px;font-size:13px;font-weight:700;background:#f2f4f7;color:#5b6b7e}
+#sheet .cats div.on{background:#12306e;color:#fff}
+#sheet .tplRow{display:grid;grid-template-columns:repeat(3,1fr);gap:9px}
+#sheet .tplRow .t{text-align:center}
+#sheet .tplRow canvas{width:100%;aspect-ratio:288/420;height:auto;border-radius:10px;border:2px solid #e4e7ec;background:#3a434b;display:block}
+#sheet .tplRow .t.on canvas{border-color:#1d5bd8;box-shadow:0 0 0 3px rgba(29,91,216,.18)}
+#sheet .tplRow .n{font-size:11.5px;color:#344054;margin-top:5px;line-height:1.25;font-weight:600}
+#sheet .row{display:flex;gap:7px;flex-wrap:wrap}
+#sheet .row div{padding:9px 13px;border:1px solid #e4e7ec;border-radius:11px;font-size:13px;color:#344054;background:#f9fafb}
+#sheet .row div.on{background:#1d5bd8;color:#fff;border-color:#1d5bd8;font-weight:700}
+#sheet .fld{display:flex;gap:7px;flex-wrap:wrap}
+#sheet .fld div{padding:8px 12px;border-radius:999px;font-size:13px;background:#f2f4f7;color:#475467;border:1px solid #e4e7ec}
+#sheet .fld div.on{background:#e8f0fe;border-color:#1d5bd8;color:#12306e;font-weight:700}
+#sheet input[type=range]{width:100%;margin:4px 0 2px;accent-color:#1d5bd8;height:26px}
+#sheet label{display:block;font-size:11.5px;color:#667085;margin:9px 0 4px;font-weight:600}
+#sheet input[type=text]{width:100%;padding:11px 12px;border:1px solid #e4e7ec;border-radius:11px;font-size:15px;background:#f9fafb}
+#sheet .btns{display:flex;gap:9px;margin-top:16px}
+#sheet .btns div{flex:1;text-align:center;padding:13px;border-radius:12px;font-size:15px;font-weight:700}
+/* 拍摄预览 */
+#previewWrap{display:none;position:absolute;inset:0;background:#000;z-index:30;overflow:auto;padding:10px}
+#previewWrap .pmedia{width:100%;border-radius:12px;background:#14181d;max-height:66vh;object-fit:contain}
+#pvBar{position:fixed;left:0;right:0;bottom:0;background:#0b0f14;border-top:1px solid rgba(255,255,255,.08);
+  padding:10px 12px calc(12px + env(safe-area-inset-bottom));display:flex;gap:9px;z-index:31}
+#pvBar .b{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:14px 4px;border:none;border-radius:12px;
+  color:#fff;font-size:15px;font-weight:700}
+.st{position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);background:rgba(12,18,26,.92);
+  color:#9ff0b6;padding:9px 16px;border-radius:999px;font-size:13px;z-index:32;display:none;text-align:center;max-width:92vw;
+  border:1px solid rgba(255,255,255,.12)}
+.st.err{color:#ffb4b4}
+@media (orientation:landscape){
+  /* v39：以 v33 为基准 —— 右侧拍照栏原样不动，只做三处：① 变焦挪到右边 ② 取景贴住右栏(不留空) ③ 水印变窄 */
+  .appbar{padding:calc(2px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) 2px calc(10px + env(safe-area-inset-left));gap:8px;margin-right:122px}
+  .ttl{font-size:14px;line-height:1.25}
+  .ttl span{font-size:10.5px}
+  #stage{margin-right:122px}
+  #stage video{object-fit:cover}
+  .bottombar{position:fixed;right:0;top:0;bottom:0;width:122px;margin:0;
+    padding:calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) 6px;
+    flex-direction:column;align-items:center;justify-content:flex-end;gap:12px;
+    border-top:none;border-left:1px solid rgba(255,255,255,.08)}
+  .bottombar .side{width:100%;flex-direction:column;align-items:center;gap:10px}
+  .bottombar>*{flex:0 0 auto}
+  .bb-c{gap:12px}
+  .modes{flex-direction:column;padding:2px;gap:2px}
+  .modes>div{padding:6px 10px;font-size:11.5px;text-align:center;border-radius:999px}
+  #shutter{width:62px;height:62px;border-width:3px;flex:0 0 auto;aspect-ratio:1/1}
+  .bottombar .side .thumb{width:44px!important;height:44px!important}
+  .bottombar .side button.ic{width:42px!important;height:42px!important}
+  .zoomctl{position:fixed;left:auto;right:calc(122px + 6px + env(safe-area-inset-right));top:50%;transform:translateY(-50%);
+    flex-direction:column;gap:3px;padding:5px 3px;border-radius:18px}
+  .zoomctl .zbtn{width:38px;height:26px;line-height:26px;font-size:11px;border-radius:13px}
+  .chipbar{top:calc(4px + env(safe-area-inset-top))!important}
+  #tipbar{left:8px;right:auto;width:min(52%,340px);bottom:calc(10px + env(safe-area-inset-bottom));font-size:12px;padding:8px 10px}
+}
+</style>
+</head>
+<body>
+<header class="appbar">
+  <button class="ic" onclick="backHome()" aria-label="返回"><svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+  <div class="ttl">水印相机<span>施工记录 · 拍照留档 · <b id="verTag" style="color:#ffc53d">v42</b></span></div>
+  <button class="ic" onclick="flipCam()" aria-label="翻转"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M20 12a8 8 0 0 1-13.7 5.6M4 12a8 8 0 0 1 13.7-5.6"/><path d="M17 3v4h-4M7 21v-4h4"/></svg></button>
+  <button class="ic" id="fsBtn" onclick="goFull()" aria-label="全屏" title="全屏"><svg viewBox="0 0 24 24" width="21" height="21" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5.5A1.5 1.5 0 0 1 5.5 4H9M15 4h3.5A1.5 1.5 0 0 1 20 5.5V9M20 15v3.5a1.5 1.5 0 0 1-1.5 1.5H15M9 20H5.5A1.5 1.5 0 0 1 4 18.5V15"/></svg></button>
+  <a class="exit" href="javascript:logout()">退出</a>
+</header>
+
+<div id="stage">
+  <video id="vd" autoplay playsinline muted></video>
+  <canvas id="recCanvas" width="1280" height="720"></canvas>
+  <canvas id="wmCv"></canvas>
+  <div class="zoomctl" id="zoomCtl" title="两指捏合也可缩放"><div class="zbtn off" data-z="0.5" onpointerdown="lensHoldStart()" onpointerup="lensHoldEnd()" onpointercancel="lensHoldEnd()" onpointerleave="lensHoldEnd()" onclick="pickZoom(0.5)">0.5×</div><div class="zbtn on" data-z="1" onclick="pickZoom(1)">1×</div><div class="zbtn" data-z="2" onclick="pickZoom(2)">2×</div><div class="zbtn" data-z="3" onclick="pickZoom(3)">3×</div><div class="zbtn" data-z="4" onclick="pickZoom(4)">4×</div></div>
+
+  <div class="chipbar">
+    <div class="chip" onclick="openSheet('tpl')"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.6"/></svg><b id="chipTpl">经典工程</b></div>
+  </div>
+
+  <div class="hint" id="hint">按住水印可拖动 · 轻点水印改模板</div>
+  <div id="tipbar"></div>
+  <div id="camGuide">
+    <div class="cg-card">
+      <h4>需要相机权限</h4>
+      <div class="cg-why"></div>
+      <div class="cg-steps"></div>
+      <div class="cg-note">点一次「允许」，本机以后打开都不再询问；建议把本页「添加到主屏幕」用。</div>
+      <div class="cg-btns"><button onclick="hideCamGuide()">知道了</button><button class="p" onclick="hideCamGuide();startCam();">我已允许，重试</button></div>
+    </div>
+  </div>
+  <div id="timer"><i></i><span id="tsec">00:00</span></div>
+</div><!-- ★ 闭合 #stage：底部操作栏必须是 body 的直接子元素，否则会跟取景一起被居中 → 快门跑到屏幕中间 ★ -->
+
+  <div id="sheet">
+    <div class="handle"></div>
+    <div class="sTop"><b>水印</b><span class="x" onclick="closeSheet()">收起</span></div>
+    <div class="tabs">
+      <div data-tab="tpl" onclick="showTab('tpl')">模板</div>
+      <div data-tab="content" class="on" onclick="showTab('content')">内容</div>
+      <div data-tab="style" onclick="showTab('style')">样式</div>
+    </div>
+
+    <div class="pane" id="pane-tpl">
+      <div class="cats" id="catRow"></div>
+      <div class="tplRow" id="tplRow"></div>
+      <div class="paneTip">点一下缩略图立即换模板，画面同步变</div>
+    </div>
+
+    <div class="pane on" id="pane-content">
+      <label>项目名称（必填 · 决定后端相册文件夹）</label><input type="text" id="edProject" placeholder="如：示例市政道路改造工程">
+      <label>施工区域</label><input type="text" id="edArea" placeholder="如：151平台">
+      <label>分项名称（选填，填了就当这一行的名，如：挡土墙）</label><input type="text" id="edPart" placeholder="如：挡土墙">
+      <label>施工内容</label><input type="text" id="edContent" placeholder="如：地磅引坡浇筑">
+      <label>地点（自动已填，可改）</label><input type="text" id="edPlace">
+      <label>施工路线 / 整改要求（选填）</label><input type="text" id="edRoute" placeholder="如：K2+300 至 K2+800">
+      <label>记录人（选填）</label><input type="text" id="edWho" placeholder="如：张三">
+      <div class="sec">单位 / 责任人（选填，填一次以后自动带）</div>
+      <label>建设单位</label><input type="text" id="edBuilder" placeholder="如：示例建设工程有限公司">
+      <label>施工单位</label><input type="text" id="edUnit1">
+      <label>监理单位</label><input type="text" id="edUnit2">
+      <label>设计单位</label><input type="text" id="edDesigner">
+      <label>勘察单位</label><input type="text" id="edSurveyor">
+      <label>施工责任人</label><input type="text" id="edDuty1" placeholder="如：张三">
+      <label>监理责任人</label><input type="text" id="edDuty2" placeholder="如：李四">
+      <label>备注</label><input type="text" id="edRemark" placeholder="选填">
+      <label>项目简称（底部蓝条）</label><input type="text" id="edFoot" placeholder="如：示例工程项目">
+      <div class="sec">显示字段（点一下开/关）</div>
+      <div class="fld" id="fldRow"></div>
+      <div class="btns"><div style="background:#f2f4f7;color:#344054" onclick="closeSheet()">取消</div>
+        <div style="background:#1d5bd8;color:#fff" onclick="saveSheet()">完成</div></div>
+    </div>
+
+    <div class="pane" id="pane-style">
+      <div class="sec">画面比例 <span id="arVal">16:9</span></div>
+      <div class="row" id="arRow"></div>
+      <div class="sec">水印位置</div>
+      <div class="row" id="posRow"></div>
+      <div class="sec">字号大小 <span id="scaleVal">100%</span></div>
+      <input type="range" id="rScale" min="60" max="200" step="5" oninput="onScale(this.value)">
+      <div class="sec">背景不透明度 <span id="alphaVal">100%</span></div>
+      <input type="range" id="rAlpha" min="40" max="100" step="2" oninput="onAlpha(this.value)">
+      <div class="paneTip">样式即时生效 · 水印也可以直接用手指拖到任意位置</div>
+      <div class="verline" id="verLine">版本 v42</div>
+    </div>
+  </div>
+
+<div class="bottombar">
+  <div class="side">
+    <div class="thumb" id="thumb" onclick="openAlbum()" title="相册"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17l5-5 4 4 3-3 4 4"/></svg></div>
+  </div>
+  <div class="bb-c">
+    <div class="modes"><div id="mPhoto" class="on" onclick="setMode('photo')">拍照</div><div id="mVid" onclick="setMode('video')">录像</div><div id="mSys" onclick="setMode('sys')">系统相机</div></div>
+    <input id="natCam" type="file" accept="image/*" capture="environment" style="display:none" onchange="natShot(this)">
+    <div id="shutter"><div class="in" id="shIcon"></div></div>
+  </div>
+  <div class="side">
+    <button class="ic" onclick="openSheet('content')" aria-label="水印设置" style="width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);color:#c7d6e4;display:flex;align-items:center;justify-content:center"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.07.07a2 2 0 1 1-2.83 2.83l-.07-.07A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 1.56V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.87.34l-.07.07a2 2 0 1 1-2.83-2.83l.07-.07A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.34-1.87l-.07-.07a2 2 0 1 1 2.83-2.83l.07.07A1.7 1.7 0 0 0 9 4.6h.1A1.7 1.7 0 0 0 10 3.04V3a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 4.6a1.7 1.7 0 0 0 1.87-.34l.07-.07a2 2 0 1 1 2.83 2.83l-.07.07A1.7 1.7 0 0 0 19.4 9v.1a1.7 1.7 0 0 0 1.56 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </div>
+</div>
+
+<div id="previewWrap">
+  <div class="st" id="st"></div>
+  <div id="pvMedia"></div>
+</div>
+<div id="pvBar" style="display:none">
+  <div class="b" style="background:#1d5bd8" onclick="backCam()"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M20 12a8 8 0 0 1-13.7 5.6M4 12a8 8 0 0 1 13.7-5.6"/><path d="M17 3v4h-4M7 21v-4h4"/></svg>重拍/重录</div>
+  <div class="b" style="background:#0f8a43" onclick="saveUp()"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 20h16"/></svg>保存到 NAS</div>
+</div>
+
+<script>
+/* 示例信息：换成你自己的公司/项目即可（也可以在「内容」页里逐项改，会记住） */
+const CFG={company:"示例建筑集团",en:"SAMPLE GROUP",project:"示例市政道路改造工程",
+  unit1:"施工单位：示例建设工程有限公司",unit2:"监理单位：示例监理咨询有限公司"};
+const MOCK=new URLSearchParams(location.search).has("mock");
+
+let stream=null, mode="photo", recOn=false, recTimer=null, recSec=0, recorder=null, recChunks=[], recCanvas=document.getElementById("recCanvas"), recCtx=recCanvas.getContext("2d"), rafId=null;
+let coords=null, area="", content="", place="", weatherText="定位中…", placeText="", who="", route="";
+/* v11 新增可填项（都会记忆） */
+let part="", builder="", designer="", surveyor="", duty1="", duty2="", remark="",
+    unit1v="示例建设工程有限公司", unit2v="示例监理咨询有限公司", footTxt="示例工程项目";
+let facing="environment";
+let wmPos={fx:0,fy:0.5};
+let pvBlob=null, pvKind="";
+let started=false;
+
+/* ==================== 水印设置（模板 / 位置 / 字号 / 字段） ==================== */
+const FLDS=[["logo","品牌图片"],["project","项目名称"],["num","编号"],["area","施工区域"],["content","施工内容"],
+            ["builder","建设单位"],["unit1","施工单位"],["unit2","监理单位"],["designer","设计单位"],["surveyor","勘察单位"],
+            ["duty1","施工责任人"],["duty2","监理责任人"],["who","记录人"],["time","拍摄时间"],["week","星期"],
+            ["weather","天气"],["place","地点"],["gps","经纬度"],["alt","海拔"],["bearing","方位角"],
+            ["speed","速度"],["route","施工路线"],["remark","备注"]];
+let wmOpt={tpl:"t1",scale:1,alpha:1,pos:"lm",
+  fields:{logo:1,project:1,num:0,area:1,content:1,
+          builder:0,unit1:1,unit2:1,designer:0,surveyor:0,duty1:0,duty2:0,who:0,
+          time:1,week:1,weather:1,place:1,gps:0,alt:0,bearing:0,speed:0,route:0,remark:0}};
+const POSES=[["tl","左上"],["lm","左中"],["bl","左下"],["tr","右上"],["rm","右中"],["br","右下"]];
+
+const LS_PREF="wc_pref_v1", LS_KEY="wc_last_input_v1";
+function loadPref(){ try{ const p=JSON.parse(localStorage.getItem(LS_PREF)||"{}");
+  if(p.camAR&&ARS.some(x=>x[0]===p.camAR))camAR=p.camAR;   /* 记住画面比例 */
+  if(p.project)CFG.project=p.project;   /* v40：项目名称也记住 */
+  if(p.tpl)wmOpt.tpl=p.tpl; if(p.scale)wmOpt.scale=p.scale; if(p.alpha)wmOpt.alpha=p.alpha; if(p.pos)wmOpt.pos=p.pos;
+  /* v17 一次性把"会让水印发灰/构图不合意"的老偏好刷成本次默认（之后他自己的调整照常保留） */
+  try{ if(localStorage.getItem("wc_arver")!=="17"){ camAR="16:9"; localStorage.setItem("wc_arver","17"); } }catch(_){}
+  try{ if(localStorage.getItem("wc_alphaver")!=="20"){ wmOpt.alpha=1; localStorage.setItem("wc_alphaver","20");
+    /* v20：直接改写存档里的 alpha（不依赖 savePref，此刻它读的值还没装载完）＋ 启动后再落一次盘 */
+    try{ const _pp=JSON.parse(localStorage.getItem(LS_PREF)||"{}"); _pp.alpha=1; localStorage.setItem(LS_PREF,JSON.stringify(_pp)); }catch(_e){}
+    setTimeout(function(){ try{ savePref(); }catch(_e){} }, 900);
+  } }catch(_){}
+  if(p.fields)Object.assign(wmOpt.fields,p.fields);
+  if(typeof p.area==="string")area=p.area; if(typeof p.content==="string")content=p.content;
+  if(typeof p.who==="string")who=p.who; if(typeof p.route==="string")route=p.route;
+  ["part","builder","designer","surveyor","duty1","duty2","remark","unit1v","unit2v","footTxt"].forEach(k=>{
+    if(typeof p[k]==="string" && p[k] !== "") eval(k + "=p[k]");
+  });
+}catch(e){} }
+/* ---------- v41：设置云端同步（换入口不清空） ---------- */
+let _prefsSynced=false, _prefPushT=null;
+function _prefBody(){ try{ return JSON.parse(localStorage.getItem(LS_PREF)||"{}"); }catch(e){ return {}; } }
+function pushPrefs(force){
+  if(!_prefsSynced && !force) return;              /* 还没跟服务器对齐前不推，免得把空设置盖上去 */
+  clearTimeout(_prefPushT);
+  _prefPushT=setTimeout(()=>{ try{
+    fetch("/api/prefs",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(_prefBody())}).catch(()=>{});
+  }catch(e){} }, 900);
+}
+function syncPrefsFromServer(){
+  fetch("/api/prefs",{cache:"no-store"}).then(r=>r.json()).then(j=>{
+    const srv=(j&&j.prefs)||{};
+    const loc=_prefBody();
+    const st=Number(srv.ts||0), lt=Number(loc.ts||0);
+    const has = Object.keys(srv).filter(k=>k!=="ts").length>0;
+    _prefsSynced=true;
+    if(has && st>=lt){                              /* 服务器更新 → 拉到本地并生效 */
+      try{ localStorage.setItem(LS_PREF, JSON.stringify(Object.assign({},loc,srv))); }catch(e){}
+      try{ loadPref(); }catch(e){}
+      try{ const e=document.getElementById("edProject"); if(e) e.value=CFG.project; }catch(e){}
+      try{ paintPreview(); }catch(e){}
+    }else{
+      pushPrefs(true);                              /* 本地更新 → 推上去，另一个入口就能看到 */
+    }
+  }).catch(()=>{ _prefsSynced=true; });
+}
+function savePref(){ try{ localStorage.setItem(LS_PREF,JSON.stringify({camAR:camAR,tpl:wmOpt.tpl,scale:wmOpt.scale,alpha:wmOpt.alpha,
+  pos:wmOpt.pos,fields:wmOpt.fields,project:CFG.project,area:area,content:content,who:who,route:route,
+  part:part,builder:builder,designer:designer,surveyor:surveyor,duty1:duty1,duty2:duty2,remark:remark,
+  unit1v:unit1v,unit2v:unit2v,footTxt:footTxt,ts:Date.now()})); }catch(e){}
+  try{ pushPrefs(); }catch(e){} }
+function loadLastInput(){ try{ const s=JSON.parse(localStorage.getItem(LS_KEY)||"{}");
+  if(!area&&typeof s.area==="string")area=s.area;
+  if(!content&&typeof s.content==="string")content=s.content;
+}catch(e){} }
+function saveLastInput(){ savePref(); }
+loadPref(); loadLastInput();
+
+/* ---------- 自动数据 ---------- */
+function nowStr(){const d=new Date(),p=n=>(n<10?"0":"")+n;return d.getFullYear()+"."+p(d.getMonth()+1)+"."+p(d.getDate())+" "+p(d.getHours())+":"+p(d.getMinutes());}
+function P(v){return Math.max(1,Math.round(v));}
+function fitText(ctx,t,f,max){ctx.font=f;let s=String(t==null?"":t);while(s.length>0&&ctx.measureText(s).width>max)s=s.slice(0,-1);return s+(s.length<String(t).length?"…":"");}
+function drawLabSpread(ctx, s, x, width, y, color){
+  /* v22：标签在 [x, x+width) 内均匀铺开 —— 短标题字间自动补空，冒号因此与四字标题对齐 */
+  ctx.fillStyle=color; ctx.textAlign="left";
+  const chars=[...s], n=chars.length;
+  const ws=chars.map(ch=>ctx.measureText(ch).width);
+  const total=ws.reduce((a,b)=>a+b,0);
+  const gap = n>1 ? Math.max(0,(width-total)/(n-1)) : 0;
+  let cx=x;
+  for(let k=0;k<n;k++){ ctx.fillText(chars[k], cx, y); cx += ws[k] + gap; }
+}
+function wrapLines(ctx,t,f,max,n){ctx.font=f;const out=[];let c="";for(const ch of String(t)){if(ctx.measureText(c+ch).width>max&&c){out.push(c);c=ch;}else c+=ch;if(out.length===n){out[n-1]=out[n-1].slice(0,-1)+"…";break;}}if(c&&out.length<n)out.push(c);return out.length?out:[""];}
+function rr(ctx,x,y,w,h,r){r=Math.min(r,Math.max(1,h/2),Math.max(1,w/2));ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+
+/* ---------- 水印数据（字段库） ---------- */
+function weekCN(){ return "星期" + "日一二三四五六"[new Date().getDay()]; }
+function wmData(){
+  const c = coords || {};
+  return {
+    company: CFG.company, project: CFG.project, num: NO(), week: weekCN(),
+    time: nowStr(), area: area || "—", content: content || "—", route: route || "",
+    weather: weatherText, place: (place || placeText || "—"),
+    gps: (c.lat ? (c.lat + ", " + c.lng) : ""),
+    alt: (c.alt != null ? Math.round(c.alt) + "m" : ""),
+    speed: (c.spd != null ? Math.round(c.spd * 3.6) + "km/h" : ""),
+    unit1: "施工单位：" + unit1v, unit2: "监理单位：" + unit2v,
+    u1: unit1v, u2: unit2v,
+    builder: builder, designer: designer, surveyor: surveyor,
+    duty1: duty1, duty2: duty2, remark: remark,
+    part: part, foot: footTxt, bearing: (c.hd != null ? Math.round(c.hd) + "°" : ""),
+    who: who || ""
+  };
+}
+/* LOGO：把图片放到服务端 app/icons/ 下、文件名写进 ICON_PATH 即可；没有图时用矢量画法兜底 */
+const LOGO = new Image();
+let logoReady = false;
+LOGO.onload = () => { logoReady = true; try{ paintPreview(); }catch(e){} };
+LOGO.onerror = () => { logoReady = false; };
+LOGO.src = "/icons/guoding-logo.png";
+
+let noSeq = null;
+function NO(){ if(!noSeq){ const dt=new Date();
+  noSeq=String(dt.getMonth()+1).padStart(2,"0")+String(dt.getDate()).padStart(2,"0")+"-"+String(Math.floor(Math.random()*900+100)); }
+  return noSeq; }
+
+/* ---------- 字段分组取数（模板共用，改字段只改这里） ---------- */
+function fldRows(o,d){                       // "标签：值" 行
+  const r=[];
+  if(o.fields.area) r.push(["施工区域", d.area]);
+  if(o.fields.content) r.push([d.part || "施工内容", d.content]);
+  if(o.fields.route && d.route) r.push(["施工路线", d.route]);
+  if(o.fields.remark && d.remark) r.push(["备注", d.remark]);
+  return r;
+}
+function fldMeta(o,d){                       // 时间 · 星期 · 天气
+  const a=[];
+  if(o.fields.time) a.push(d.time);
+  if(o.fields.week) a.push(d.week);
+  if(o.fields.weather) a.push(d.weather);
+  return a;
+}
+function fldLoc(o,d){                        // 地点 · 经纬度 · 海拔 · 速度
+  const a=[];
+  if(o.fields.place) a.push(d.place);
+  if(o.fields.gps && d.gps) a.push(d.gps);
+  if(o.fields.alt && d.alt) a.push("海拔 " + d.alt);
+  if(o.fields.bearing && d.bearing) a.push("方位角 " + d.bearing);
+  if(o.fields.speed && d.speed) a.push(d.speed);
+  return a;
+}
+function fldUnits(o,d){                      // 单位 · 责任人 · 记录人
+  const a=[];
+  if(o.fields.builder && d.builder) a.push("建设单位：" + d.builder);
+  if(o.fields.unit2) a.push(d.unit2);
+  if(o.fields.unit1) a.push(d.unit1);
+  if(o.fields.designer && d.designer) a.push("设计单位：" + d.designer);
+  if(o.fields.surveyor && d.surveyor) a.push("勘察单位：" + d.surveyor);
+  if(o.fields.duty1 && d.duty1) a.push("施工责任人：" + d.duty1);
+  if(o.fields.duty2 && d.duty2) a.push("监理责任人：" + d.duty2);
+  if(o.fields.who && d.who) a.push("记录人：" + d.who);
+  return a;
+}
+function fldTitle(o,d,base){                 // 标题（可带编号）
+  return (o.fields.num ? d.num + " · " : "") + d.company + " · " + (base || "施工记录");
+}
+function fldTable(o,d){                      // 表格模板逐行（按字段开关生成）
+  const r=[];
+  if(o.fields.area) r.push(["施工区域", d.area]);
+  if(o.fields.content) r.push(["施工内容", d.content]);
+  if(o.fields.route && d.route) r.push(["施工路线", d.route]);
+  if(o.fields.time) r.push(["拍摄时间", d.time + (o.fields.week ? " " + d.week : "")]);
+  if(o.fields.weather) r.push(["天气", d.weather]);
+  if(o.fields.place) r.push(["拍摄地点", d.place]);
+  if(o.fields.gps && d.gps) r.push(["经纬度", d.gps]);
+  if(o.fields.alt && d.alt) r.push(["海拔", d.alt]);
+  if(o.fields.speed && d.speed) r.push(["速度", d.speed]);
+  if(o.fields.num) r.push(["编号", d.num]);
+  if(o.fields.builder && d.builder) r.push(["建设单位", d.builder]);
+  if(o.fields.designer && d.designer) r.push(["设计单位", d.designer]);
+  if(o.fields.surveyor && d.surveyor) r.push(["勘察单位", d.surveyor]);
+  if(o.fields.duty1 && d.duty1) r.push(["施工责任人", d.duty1]);
+  if(o.fields.duty2 && d.duty2) r.push(["监理责任人", d.duty2]);
+  if(o.fields.bearing && d.bearing) r.push(["方位角", d.bearing]);
+  if(o.fields.remark && d.remark) r.push(["备注", d.remark]);
+  if(o.fields.project) r.push(["项目名称", d.project]);
+  if(o.fields.unit2) r.push(["监理单位", d.unit2.replace(/^监理单位：/,"")]);
+  if(o.fields.unit1) r.push(["施工单位", d.unit1.replace(/^施工单位：/,"")]);
+  return r;
+}
+
+/* ==================== 9 种水印模板（画布绘制，唯一实现：预览/拍照/录像共用） ==================== */
+const CATS=[["all","全部"],["gc","工程"],["xj","巡检 · 验收"],["dk","打卡 · 考勤"],["jj","极简"]];
+const TPL=[
+{id:"t1",cat:"gc",name:"经典工程",note:"科技蓝",draw(ctx,W,H,fx,fy,d,o){
+  /* 标准工程水印牌：科技蓝 #1a5c8f 系 + 真 LOGO + 标签右对齐 + 下部蓝底单位行 + 底部团队专属 */
+  const ux = v => v*(W/1000)*1.55*o.scale;                          // 横向基准
+  const kY = Math.max(0.95, Math.min(1.42, (H/Math.max(1,W))/1.32)); // 结合画面长宽比：竖构图(3:4≈1.33)=1.0，越竖越高
+  const uy = v => ux(v)*kY;
+  const BLUE="#1a5c8f", BLUE2="#2a6fa3", BLUE3="#123f63", DK="#1b2229", GY="#39434d", W1="#ffffff", YL="#ffc53d";
+  const pad = ux(16);
+  /* 内容行 */
+  const rows=[];
+  if(o.fields.area) rows.push(["施工区域", d.area]);
+  if(o.fields.content) rows.push([d.part||"施工内容", d.content]);
+  if(o.fields.route && d.route) rows.push(["施工路线", d.route]);
+  if(o.fields.time) rows.push(["拍摄时间", d.time + (o.fields.week ? " " + d.week : "")]);
+  if(o.fields.weather) rows.push(["天气", d.weather]);
+  if(o.fields.place) rows.push(["地点", d.place]);
+  if(o.fields.alt && d.alt) rows.push(["海拔", d.alt]);
+  if(o.fields.bearing && d.bearing) rows.push(["方位角", d.bearing]);
+  if(o.fields.speed && d.speed) rows.push(["速度", d.speed]);
+  if(o.fields.gps && d.gps) rows.push(["经纬度", d.gps]);
+  if(o.fields.remark && d.remark) rows.push(["备注", d.remark]);
+  /* 单位/责任人行 */
+  const units=[];
+  if(o.fields.builder && d.builder) units.push(["建设单位", d.builder]);
+  if(o.fields.unit2) units.push(["监理单位", d.u2]);
+  if(o.fields.unit1) units.push(["施工单位", d.u1]);
+  if(o.fields.designer && d.designer) units.push(["设计单位", d.designer]);
+  if(o.fields.surveyor && d.surveyor) units.push(["勘察单位", d.surveyor]);
+  if(o.fields.duty1 && d.duty1) units.push(["施工责任人", d.duty1]);
+  if(o.fields.duty2 && d.duty2) units.push(["监理责任人", d.duty2]);
+  if(o.fields.who && d.who) units.push(["记录人", d.who]);
+  /* 字号 */
+  const fT="bold "+P(ux(18))+"px sans-serif", fL="bold "+P(ux(16))+"px sans-serif", fV=P(ux(16))+"px sans-serif",
+        fU="bold "+P(ux(15))+"px sans-serif", fM="bold "+P(ux(14))+"px sans-serif";
+  /* v44：卡片宽度定死（画面宽 50%，取整为整数像素；保留 ux(580) 上限）
+     —— 不再随内容浮动；内容超宽由下面的自动换行处理 */
+  const unitLab = ux(78);
+  const cw = Math.round(Math.min(W*0.50*WM_WF, ux(580)));
+  /* 表头高度（项目名折行） */
+  const logoTxt = ux(86);
+  const headH = Math.max(uy(70), 1);   // 先占位，下面按折行数算
+  const titleMax = cw - (o.fields.logo ? logoTxt + ux(26) : pad*2) - pad;
+  const tLines = wrapLines(ctx, d.project || d.company, fT, titleMax, 3);
+  const headH2 = Math.max(uy(72), tLines.length*uy(26)+uy(28));
+  /* 字段区：标签列宽 → 冒号对齐 */
+  const rowH = uy(31);
+  let labMax=0; ctx.font=fL;
+  for(const [k] of rows) labMax=Math.max(labMax, ctx.measureText(k+"：").width);
+  /* v44：字段值超宽自动换行（原来用 fitText 会逐字砍尾巴丢字）—— 预量折行数，高度与绘制共用 */
+  const rLines=[]; let rowsBlock=0;
+  ctx.font=fV;
+  for(const [k,v] of rows){
+    const ls=wrapLines(ctx, (v==null?"":String(v)), fV, Math.max(ux(60), cw-pad*2-labMax), 6);
+    rLines.push([k, ls]); rowsBlock += Math.max(1, ls.length)*rowH;
+  }
+  /* 单位区：值可折行 */
+  const uLines=[];
+  let unitBlock=0;
+  ctx.font=fU;
+  for(const [k,v] of units){
+    const ls=wrapLines(ctx, v, fU, cw-pad*2-unitLab, 2);
+    uLines.push([k, ls]); unitBlock += ls.length*uy(23)+uy(8);
+  }
+  if(units.length) unitBlock += uy(10);
+  const footH = uy(38);
+  const hgt = headH2 + uy(12) + rowsBlock + (rows.length? uy(6):0) + unitBlock + footH + uy(6);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-hgt));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  /* 卡片 + 投影 */
+  ctx.shadowColor="rgba(0,0,0,.38)"; ctx.shadowBlur=ux(8); ctx.shadowOffsetY=uy(2);
+  ctx.fillStyle=W1; rr(ctx,x,y,cw,hgt,ux(10)); ctx.fill();
+  ctx.shadowColor="transparent"; ctx.shadowBlur=0; ctx.shadowOffsetY=0;
+  /* 表头：整条科技蓝 */
+  rr(ctx,x,y,cw,headH2,ux(10)); ctx.save(); ctx.clip(); ctx.fillStyle=BLUE; ctx.fillRect(x,y,cw,headH2); ctx.restore();
+  /* 左侧白底 LOGO 区 */
+  if(o.fields.logo){
+    ctx.save();
+    ctx.beginPath(); ctx.moveTo(x+ux(2),y+ux(2)); ctx.lineTo(x+logoTxt,y+ux(2));
+    ctx.lineTo(x+logoTxt,y+headH2-uy(2)); ctx.lineTo(x+ux(2),y+headH2-uy(2)); ctx.closePath(); ctx.clip();
+    ctx.fillStyle=W1; ctx.fillRect(x,y,logoTxt,headH2); ctx.restore();
+    if(logoReady){
+      const bh=headH2-uy(14), bw=Math.min(logoTxt-ux(12), bh*(LOGO.naturalWidth/Math.max(1,LOGO.naturalHeight)));
+      ctx.drawImage(LOGO, x+(logoTxt-bw)/2, y+(headH2-bh)/2, bw, bh);
+    }else{
+      /* 兜底：矢量 mark + 中英文 */
+      const mk=uy(30), mx=x+ux(10), my=y+(headH2-mk)/2;
+      ctx.fillStyle=BLUE; rr(ctx,mx,my,mk,mk,ux(5)); ctx.fill();
+      ctx.fillStyle=W1; rr(ctx,mx+mk*0.28,my+mk*0.28,mk*0.44,mk*0.44,ux(3)); ctx.fill();
+      ctx.fillStyle="#d92b2b"; ctx.fillRect(mx+mk*0.42,my+mk*0.42,mk*0.16,mk*0.16);
+      ctx.textAlign="left"; ctx.fillStyle=DK; ctx.font="bold "+P(ux(15))+"px sans-serif";
+      ctx.fillText(d.company, mx+mk+ux(6), my+mk*0.5);
+      ctx.fillStyle=GY; ctx.font=P(ux(9))+"px sans-serif";
+      ctx.fillText("G U O D I N G   G R O U P", mx+mk+ux(6), my+mk*0.88);
+    }
+    ctx.strokeStyle="rgba(26,92,143,.22)"; ctx.lineWidth=Math.max(1,ux(1));
+    ctx.beginPath(); ctx.moveTo(x+logoTxt,y+uy(8)); ctx.lineTo(x+logoTxt,y+headH2-uy(8)); ctx.stroke();
+  }
+  /* 项目名（蓝底白字，多行） */
+  const tx=x+(o.fields.logo?logoTxt+ux(14):pad);
+  ctx.font=fT; ctx.fillStyle=W1; ctx.textAlign="left";
+  let ty=y+(headH2-tLines.length*uy(26))/2+uy(19);
+  for(const ln of tLines){ ctx.fillText(ln,tx,ty); ty+=uy(26); }
+  /* 字段行：标签右对齐 → 冒号成竖线 */
+  let yy=y+headH2+uy(8);
+  const colonW = (function(){ ctx.font=fL; return ctx.measureText("：").width; })();
+  const labText = labMax - colonW;                /* v22：标签文字占的宽（不含冒号） */
+  for(const [k,ls] of rLines){                    /* v44：值超宽换行显示（最多 3 行），行高按行数累计 */
+    ctx.font=fL;
+    drawLabSpread(ctx, k, x+pad, labText, yy+uy(20), GY);
+    ctx.fillText("：", x+pad+labText, yy+uy(20));
+    ctx.font=fV; ctx.fillStyle=DK;
+    for(let n=0;n<ls.length;n++){ ctx.fillText(ls[n], x+pad+labMax, yy+uy(20)+n*rowH); }
+    yy += Math.max(1,ls.length)*rowH;
+  }
+  ctx.textAlign="left";
+  /* 单位区：蓝色区块（比表头浅一档，视觉分区） */
+  if(units.length){
+    yy += uy(5);
+    const uh = unitBlock-uy(3);
+    ctx.fillStyle=BLUE2; ctx.fillRect(x,yy,cw,uh);
+    let uy2=yy+uy(24);
+    ctx.textAlign="right";
+    const uColonW = (function(){ ctx.font=fU; return ctx.measureText("：").width; })();
+    const uText = unitLab - uColonW;
+    for(const [k,ls] of uLines){
+      ctx.font=fU; ctx.fillStyle="rgba(255,255,255,.96)";
+      drawLabSpread(ctx, k, x+pad, uText, uy2, "rgba(255,255,255,.96)");
+      ctx.fillText("：", x+pad+uText, uy2);
+      ctx.textAlign="left"; ctx.fillStyle=W1; ctx.font=fU;
+      for(let n=0;n<ls.length;n++){ ctx.fillText(ls[n], x+pad+unitLab, uy2); uy2+=uy(23); }
+      ctx.textAlign="right"; uy2+=uy(8);
+    }
+    ctx.textAlign="left"; yy += uh;
+  }
+  /* 底部：深一档蓝条 + 黄勾 + 项目简称 + 团队专属徽章 */
+  ctx.fillStyle=BLUE3; ctx.fillRect(x,yy,cw,footH);
+  ctx.strokeStyle="rgba(255,255,255,.5)"; ctx.lineWidth=Math.max(1,ux(1));
+  ctx.beginPath(); ctx.moveTo(x+pad,yy+ux(1)); ctx.lineTo(x+cw-pad,yy+ux(1)); ctx.stroke();
+  const cy=yy+footH/2;
+  ctx.strokeStyle=YL; ctx.lineWidth=Math.max(2,ux(2.4)); ctx.beginPath();
+  ctx.moveTo(x+pad,cy); ctx.lineTo(x+pad+ux(7),cy+uy(6)); ctx.lineTo(x+pad+ux(18),cy-uy(6)); ctx.stroke();
+  ctx.font=fM; ctx.fillStyle=W1; ctx.textAlign="left";
+  ctx.fillText(fitText(ctx,d.foot||"",fM,cw-pad*2-ux(100)), x+pad+ux(26), cy+uy(5));
+  const bt="团队专属", bw=ctx.measureText(bt).width+ux(16);
+  ctx.strokeStyle="rgba(255,255,255,.92)"; ctx.lineWidth=Math.max(1,ux(1.2));
+  rr(ctx,x+cw-pad-bw,cy-uy(12),bw,uy(24),uy(12)); ctx.stroke();
+  const al=ctx.textAlign; ctx.textAlign="center";
+  ctx.fillText(bt, x+cw-pad-bw/2, cy+uy(5)); ctx.textAlign=al;
+  ctx.restore();
+  return {w:cw, h:hgt};        /* ★ 必须有：拖动/命中框靠它，漏了就会拖不动 */
+}}, {id:"t2",cat:"gc",name:"施工表格",note:"白底表格线",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.58*WM_WF,u(470)), pad=u(10), hd=u(34), rh=u(30), lab=u(126);
+  const rows=fldTable(o,d);
+  const boldKeys=["施工区域","施工内容","施工路线"];
+  const unitLine=[].concat(o.fields.unit1?[d.unit1]:[], o.fields.unit2?[d.unit2]:[]).join(" ｜ ");
+  let h=hd+rows.length*rh+u(10)+(unitLine?u(24):0)+(o.fields.who?u(26):0);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="#fff"; ctx.fillRect(x,y,cw,h);
+  const g=ctx.createLinearGradient(x,0,x+cw,0); g.addColorStop(0,"#1f4e79"); g.addColorStop(1,"#2f6da8");
+  ctx.fillStyle=g; ctx.fillRect(x,y,cw,hd);
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(19))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText(d.company+" 施工记录",x+pad,y+u(23));
+  if(o.fields.num){ ctx.font="bold "+P(u(14))+"px sans-serif"; ctx.textAlign="right"; ctx.fillText("NO."+d.num,x+cw-pad,y+u(23)); ctx.textAlign="left"; }
+  const fL="bold "+P(u(16))+"px sans-serif", fV="bold "+P(u(16))+"px sans-serif", fS=P(u(14))+"px sans-serif";
+  let yy=y+hd; ctx.strokeStyle="#1f4e79"; ctx.lineWidth=Math.max(1,u(1));
+  for(const [k,v] of rows){
+    ctx.fillStyle="#eef3f8"; ctx.fillRect(x,yy,lab,rh);
+    ctx.strokeRect(x,yy,cw,rh); ctx.beginPath(); ctx.moveTo(x+lab,yy); ctx.lineTo(x+lab,yy+rh); ctx.stroke();
+    ctx.fillStyle="#1f4e79"; ctx.font=fL; ctx.fillText(k,x+pad,yy+u(20));
+    ctx.fillStyle="#111827"; ctx.font=(boldKeys.indexOf(k)>=0)?fV:fS;
+    ctx.fillText(fitText(ctx,v,ctx.font,cw-lab-pad*2),x+lab+pad,yy+u(20)); yy+=rh;
+  }
+  if(unitLine){ ctx.fillStyle="#4b5563"; ctx.font=P(u(13))+"px sans-serif";
+    ctx.fillText(fitText(ctx,unitLine,ctx.font,cw-pad*2),x+pad,yy+u(16)); yy+=u(24); }
+  if(o.fields.who){ ctx.fillStyle="#6b7280"; ctx.font=P(u(13))+"px sans-serif";
+    ctx.fillText("记录人："+(d.who||"＿＿＿"),x+pad,yy+u(17));
+    ctx.textAlign="right"; ctx.fillText("签认：＿＿＿",x+cw-pad,yy+u(17)); ctx.textAlign="left"; }
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t3",cat:"xj",name:"巡检记录",note:"青绿勾选",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.52*WM_WF,u(430)), pad=u(14), hd=u(38);
+  const rows=[["受检部位",d.area]];
+  if(o.fields.content) rows.push(["巡检事项",d.content]);
+  if(o.fields.route&&d.route) rows.push(["巡检路线",d.route]);
+  const meta=fldMeta(o,d), loc=fldLoc(o,d), units=fldUnits(o,d);
+  const bottom=[].concat(o.fields.who&&d.who?["巡检人："+d.who]:[], o.fields.unit2?[d.unit2]:[], o.fields.unit1?[d.unit1]:[]).join("　|　");
+  let h=hd+u(18)+rows.length*u(30)+(meta.length?u(26):0)+(loc.length?u(26):0)+u(46);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="#fff"; rr(ctx,x,y,cw,h,u(8)); ctx.fill();
+  ctx.fillStyle="#0f766e"; ctx.fillRect(x,y,cw,hd);
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(20))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText("● 现场巡检记录",x+pad,y+u(25));
+  if(o.fields.time){ ctx.font=P(u(14))+"px sans-serif"; ctx.textAlign="right"; ctx.fillText(d.time.split(" ")[1]||"",x+cw-pad,y+u(24)); ctx.textAlign="left"; }
+  let yy=y+hd+u(24); const fL="bold "+P(u(17))+"px sans-serif";
+  for(const [k,v] of rows){ ctx.fillStyle="#0f766e"; ctx.font=fL; ctx.fillText(k+"：",x+pad,yy);
+    const kw=ctx.measureText(k+"：").width; ctx.fillStyle="#0f172a";
+    ctx.fillText(fitText(ctx,v,fL,cw-pad*2-kw),x+pad+kw,yy); yy+=u(30); }
+  ctx.fillStyle="#475569"; ctx.font=P(u(15))+"px sans-serif";
+  ctx.fillText("检查结论：  ✔ 合格    □ 待整改",x+pad,yy+u(2)); yy+=u(28);
+  if(meta.length){ ctx.fillText(fitText(ctx,meta.join(" · "),ctx.font,cw-pad*2),x+pad,yy+u(2)); yy+=u(26); }
+  if(loc.length){ ctx.fillText(fitText(ctx,loc.join(" · "),ctx.font,cw-pad*2),x+pad,yy+u(2)); }
+  ctx.fillStyle="#f1f5f9"; ctx.fillRect(x,y+h-u(30),cw,u(30));
+  ctx.fillStyle="#475569"; ctx.font=P(u(13))+"px sans-serif";
+  ctx.fillText(fitText(ctx,bottom||d.company,ctx.font,cw-pad*2),x+pad,y+h-u(10));
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t4",cat:"dk",name:"大字时间",note:"大号时间地点",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.62*WM_WF,u(470));
+  const fT="bold "+P(u(44))+"px sans-serif", fP="bold "+P(u(24))+"px sans-serif", fI=P(u(16))+"px sans-serif";
+  const info=[]; if(o.fields.area)info.push(d.area);
+  if(o.fields.content)info.push(d.content); if(o.fields.route&&d.route)info.push(d.route);
+  const meta=fldMeta(o,d), loc=fldLoc(o,d), units=fldUnits(o,d);
+  const big=[d.time, o.fields.week?d.week:""].filter(Boolean).join("  ");
+  const inLines=wrapLines(ctx,info.join(" · "),fI,cw-u(24),2);
+  let h=0; if(o.fields.time||o.fields.week)h+=u(52); if(o.fields.place)h+=u(30);
+  if(info.length)h+=u(16)+inLines.length*u(23); if(meta.length&&o.fields.time)h+=0;
+  if(loc.length||units.length)h+=u(30);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.shadowColor="rgba(0,0,0,.6)"; ctx.shadowBlur=u(10); ctx.shadowOffsetY=u(2);
+  let yy=y+u(40); ctx.fillStyle="#fff"; ctx.font=fT; ctx.textAlign="left";
+  if(big){ ctx.fillText(fitText(ctx,big,fT,cw),x,yy); yy+=u(36); }
+  if(o.fields.place){ ctx.font=fP; ctx.fillText(fitText(ctx,d.place,fP,cw),x,yy); yy+=u(30); }
+  ctx.restore();
+  if(info.length||loc.length||units.length){
+    const lines=[].concat(inLines, loc.length?[loc.join(" · ")]:[], units.length?[units.join(" · ")]:[]);
+    const bh=u(14)+lines.length*u(23);
+    ctx.save(); ctx.globalAlpha=o.alpha; ctx.fillStyle="rgba(0,0,0,.55)"; rr(ctx,x,yy-u(20),cw,bh+u(10),u(8)); ctx.fill();
+    let y2=yy-u(4); ctx.fillStyle="#fff"; ctx.font=fI;
+    lines.forEach((ln,i)=>{ if(i>=inLines.length) ctx.fillStyle="#cbd5e1";
+      ctx.fillText(fitText(ctx,ln,ctx.font,cw-u(28)),x+u(14),y2); y2+=u(23); });
+    ctx.restore();
+  }
+  return {w:cw,h:h};
+}},
+{id:"t5",cat:"jj",name:"极简水印",note:"只有区域内容",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.44*WM_WF,u(330));
+  const fA="bold "+P(u(22))+"px sans-serif", fS=P(u(15))+"px sans-serif";
+  const lines=[]; if(o.fields.area)lines.push(d.area);
+  if(o.fields.content)lines.push(d.content); if(o.fields.route&&d.route)lines.push(d.route);
+  const meta=fldMeta(o,d), loc=fldLoc(o,d);
+  let h=u(4)+u(14)+lines.length*u(31)+(meta.length?u(24):0)+(loc.length?u(22):0);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.shadowColor="rgba(0,0,0,.55)"; ctx.shadowBlur=u(8);
+  ctx.fillStyle="#fff"; ctx.fillRect(x,y,cw*0.17,u(4)); ctx.shadowBlur=0;
+  let yy=y+u(4)+u(30); ctx.font=fA; ctx.fillStyle="#fff"; ctx.textAlign="left";
+  for(const ln of lines.slice(0,3)){ ctx.fillText(fitText(ctx,ln,fA,cw),x,yy); yy+=u(31); }
+  ctx.font=fS; ctx.fillStyle="#f1f5f9";
+  if(meta.length){ ctx.fillText(fitText(ctx,meta.join(" · "),fS,cw),x,yy+u(2)); yy+=u(24); }
+  if(loc.length){ ctx.fillStyle="#e2e8f0"; ctx.fillText(fitText(ctx,loc.join(" · "),fS,cw),x,yy+u(2)); }
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t6",cat:"gc",name:"蓝白记录",note:"蓝白卡片胶囊",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.56*WM_WF,u(450)), pad=u(14), hd=u(38);
+  const fA="bold "+P(u(20))+"px sans-serif", fC=P(u(17))+"px sans-serif", fS=P(u(13))+"px sans-serif";
+  const chips=fldMeta(o,d).concat(fldLoc(o,d));
+  const unitLine=[].concat(o.fields.unit1?[d.unit1]:[],o.fields.unit2?[d.unit2]:[]).join("｜");
+  const whoLine=(o.fields.who&&d.who)?("记录人："+d.who):"";
+  let h=hd+u(14)+(o.fields.area?u(28):0)+(o.fields.content?u(24):0)+(o.fields.route&&d.route?u(24):0)+(chips.length?u(36):0);
+  if(unitLine||whoLine)h+=u(30);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="rgba(0,0,0,.28)"; rr(ctx,x+u(2),y+u(4),cw,h,u(12)); ctx.fill();
+  ctx.fillStyle="#fff"; rr(ctx,x,y,cw,h,u(12)); ctx.fill();
+  const g=ctx.createLinearGradient(x,0,x+cw,0); g.addColorStop(0,"#1d5bd8"); g.addColorStop(1,"#3b82f6");
+  ctx.fillStyle=g; rr(ctx,x,y,cw,hd,u(12)); ctx.fill(); ctx.fillRect(x,y+hd-u(12),cw,u(12));
+  const lg=u(22); ctx.strokeStyle="#fff"; ctx.lineWidth=Math.max(1,u(2)); rr(ctx,x+pad,y+u(8),lg,lg,u(5)); ctx.stroke();
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(19))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText(fitText(ctx,d.company+" · 工程记录",ctx.font,cw-pad*2),x+pad+lg+u(8),y+u(25));
+  let yy=y+hd+u(30);
+  if(o.fields.area){ ctx.fillStyle="#0f172a"; ctx.font=fA; ctx.fillText(fitText(ctx,d.area,fA,cw-pad*2),x+pad,yy); yy+=u(28); }
+  if(o.fields.content){ ctx.fillStyle="#334155"; ctx.font=fC; ctx.fillText(fitText(ctx,d.content,fC,cw-pad*2),x+pad,yy); yy+=u(24); }
+  if(o.fields.route&&d.route){ ctx.fillStyle="#334155"; ctx.font=fC; ctx.fillText(fitText(ctx,d.route,fC,cw-pad*2),x+pad,yy); yy+=u(24); }
+  if(chips.length){ let cx=x+pad; ctx.font=fS;
+    for(const c of chips){ const tw=ctx.measureText(c).width+u(18);
+      if(cx+tw>x+cw-pad){ cx=x+pad; yy+=u(30); }
+      ctx.fillStyle="#eff6ff"; rr(ctx,cx,yy-u(15),tw,u(24),u(12)); ctx.fill();
+      ctx.fillStyle="#1d4ed8"; ctx.fillText(fitText(ctx,c,fS,tw-u(14)),cx+u(9),yy+u(2)); cx+=tw+u(7); }
+    yy+=u(30); }
+  if(unitLine||whoLine){ ctx.fillStyle="#64748b"; ctx.font=fS;
+    ctx.fillText(fitText(ctx,unitLine||whoLine,fS,cw-pad*2),x+pad,yy);
+    if(unitLine&&whoLine){ ctx.textAlign="right"; ctx.fillText(fitText(ctx,whoLine,fS,cw*0.4),x+cw-pad,yy); ctx.textAlign="left"; } }
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t7",cat:"xj",name:"监理验收",note:"验收单+签认栏",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.54*WM_WF,u(440)), pad=u(14), hd=u(40);
+  const rows=[];
+  rows.push(["验收部位", d.area]);
+  if(o.fields.content) rows.push(["验收内容", d.content]);
+  if(o.fields.route&&d.route) rows.push(["验收范围", d.route]);
+  const meta=fldMeta(o,d), loc=fldLoc(o,d), units=fldUnits(o,d);
+  const sign=[].concat(o.fields.unit2?["监理："+d.unit2.replace(/^监理单位：/,"")]:[],
+                      o.fields.unit1?["施工："+d.unit1.replace(/^施工单位：/,"")]:[],
+                      (o.fields.who&&d.who)?[d.who]:[]).join("　");
+  let h=hd+u(16)+rows.length*u(30)+u(30)+(meta.length?u(24):0)+(loc.length?u(24):0)+(units.length?u(22)*units.length:0)+u(34);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="#fff"; rr(ctx,x,y,cw,h,u(8)); ctx.fill();
+  ctx.fillStyle="#1e3a8a"; ctx.fillRect(x,y,cw,hd);
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(20))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText("监理验收记录",x+pad,y+u(26));
+  if(o.fields.num){ ctx.font=P(u(14))+"px sans-serif"; ctx.textAlign="right"; ctx.fillText("NO."+d.num,x+cw-pad,y+u(25)); ctx.textAlign="left"; }
+  let yy=y+hd+u(24); const fL="bold "+P(u(17))+"px sans-serif";
+  for(const [k,v] of rows){ ctx.fillStyle="#1e3a8a"; ctx.font=fL; ctx.fillText(k+"：",x+pad,yy);
+    const kw=ctx.measureText(k+"：").width; ctx.fillStyle="#0f172a";
+    ctx.fillText(fitText(ctx,v,fL,cw-pad*2-kw),x+pad+kw,yy); yy+=u(30); }
+  ctx.fillStyle="#475569"; ctx.font=P(u(15))+"px sans-serif";
+  ctx.fillText("验收结论：  □ 合格    □ 不合格    □ 限期整改",x+pad,yy+u(2)); yy+=u(28);
+  if(meta.length){ ctx.fillText(fitText(ctx,meta.join(" · "),ctx.font,cw-pad*2),x+pad,yy+u(2)); yy+=u(24); }
+  if(loc.length){ ctx.fillText(fitText(ctx,loc.join(" · "),ctx.font,cw-pad*2),x+pad,yy+u(2)); yy+=u(24); }
+  ctx.font=P(u(13))+"px sans-serif"; ctx.fillStyle="#4b5563";
+  for(const t of units){ ctx.fillText(fitText(ctx,t,ctx.font,cw-pad*2),x+pad,yy+u(2)); yy+=u(22); }
+  ctx.fillStyle="#f1f5f9"; ctx.fillRect(x,y+h-u(32),cw,u(32));
+  ctx.fillStyle="#334155"; ctx.font=P(u(13))+"px sans-serif";
+  ctx.fillText(fitText(ctx,sign||"监理单位签认：",ctx.font,cw-pad*2),x+pad,y+h-u(11));
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t8",cat:"dk",name:"考勤打卡",note:"打卡时间+地点",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.56*WM_WF,u(440)), pad=u(16), hd=u(46);
+  const fT="bold "+P(u(38))+"px sans-serif", fS=P(u(15))+"px sans-serif", fB="bold "+P(u(18))+"px sans-serif";
+  const meta=fldMeta(o,d), loc=fldLoc(o,d);
+  let h=hd+u(18)+u(44)+u(26)*Math.max(1,meta.length?1:0)+u(26)*Math.max(1,loc.length?1:0)+u(34);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="#fff"; rr(ctx,x,y,cw,h,u(12)); ctx.fill();
+  const g=ctx.createLinearGradient(x,0,x+cw,0); g.addColorStop(0,"#0f766e"); g.addColorStop(1,"#14b8a6");
+  ctx.fillStyle=g; rr(ctx,x,y,cw,hd,u(12)); ctx.fill(); ctx.fillRect(x,y+hd-u(12),cw,u(12));
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(19))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText((o.fields.who&&d.who?d.who+" · ":"")+"出勤打卡",x+pad,y+u(30));
+  ctx.font=P(u(14))+"px sans-serif"; ctx.textAlign="right";
+  ctx.fillText(d.week||"",x+cw-pad,y+u(29)); ctx.textAlign="left";
+  let yy=y+hd+u(46);
+  ctx.fillStyle="#0f172a"; ctx.font=fT;
+  if(o.fields.time) ctx.fillText(fitText(ctx,d.time.split(" ")[1]||d.time,fT,cw-pad*2),x+pad,yy);
+  ctx.font=fS; ctx.fillStyle="#94a3b8";
+  ctx.textAlign="right"; ctx.fillText(d.time.split(" ")[0]||"",x+cw-pad,yy-u(2)); ctx.textAlign="left";
+  yy+=u(26);
+  if(o.fields.place){ ctx.fillStyle="#334155"; ctx.font=fB; ctx.fillText(fitText(ctx,d.place,fB,cw-pad*2),x+pad,yy); yy+=u(26); }
+  if(meta.length){ ctx.fillStyle="#64748b"; ctx.font=fS;
+    ctx.fillText(fitText(ctx,meta.filter(t=>t!==d.week).join(" · "),fS,cw-pad*2),x+pad,yy); yy+=u(26); }
+  if(loc.length>1){ ctx.fillStyle="#64748b"; ctx.font=fS;
+    ctx.fillText(fitText(ctx,loc.slice(1).join(" · "),fS,cw-pad*2),x+pad,yy); yy+=u(26); }
+  ctx.fillStyle="#ecfdf5"; ctx.fillRect(x,y+h-u(34),cw,u(34));
+  ctx.fillStyle="#0f766e"; ctx.font=P(u(14))+"px sans-serif";
+  ctx.fillText(fitText(ctx,(o.fields.unit1?d.unit1:"")+(o.fields.num?"　编号："+d.num:""),ctx.font,cw-pad*2),x+pad,y+h-u(12));
+  ctx.restore(); return {w:cw,h:h};
+}},
+{id:"t9",cat:"xj",name:"问题整改",note:"问题+整改要求",draw(ctx,W,H,fx,fy,d,o){
+  const u=v=>v*(W/1000)*1.55*o.scale, cw=Math.min(W*0.54*WM_WF,u(440)), pad=u(14), hd=u(40);
+  const rows=[];
+  rows.push(["检查部位", d.area]);
+  if(o.fields.content) rows.push(["问题描述", d.content]);
+  if(o.fields.route&&d.route) rows.push(["整改要求", d.route]);
+  const meta=fldMeta(o,d), loc=fldLoc(o,d);
+  let h=hd+u(16)+rows.length*u(32)+u(28)+(meta.length?u(24):0)+(loc.length?u(24):0)+u(32);
+  const x=Math.round(fx*(W-cw)), y=Math.round(fy*(H-h));
+  ctx.save(); ctx.globalAlpha=o.alpha;
+  ctx.fillStyle="#fff"; rr(ctx,x,y,cw,h,u(8)); ctx.fill();
+  ctx.fillStyle="#b91c1c"; ctx.fillRect(x,y,cw,hd);
+  ctx.fillStyle="#fff"; ctx.font="bold "+P(u(20))+"px sans-serif"; ctx.textAlign="left";
+  ctx.fillText("▲ 巡查问题整改通知",x+pad,y+u(26));
+  if(o.fields.num){ ctx.font=P(u(14))+"px sans-serif"; ctx.textAlign="right"; ctx.fillText("NO."+d.num,x+cw-pad,y+u(25)); ctx.textAlign="left"; }
+  let yy=y+hd+u(26); const fL="bold "+P(u(17))+"px sans-serif";
+  for(const [k,v] of rows){
+    ctx.fillStyle="#b91c1c"; ctx.font=fL; ctx.fillText(k,x+pad,yy); yy+=u(24);
+    ctx.fillStyle="#111827"; ctx.font=P(u(17))+"px sans-serif";
+    ctx.fillText(fitText(ctx,v,ctx.font,cw-pad*2),x+pad,yy); yy+=u(8)+u(24);
+  }
+  ctx.fillStyle="#64748b"; ctx.font=P(u(14))+"px sans-serif";
+  const tail=[].concat(meta, loc).join(" · ");
+  if(tail) ctx.fillText(fitText(ctx,tail,ctx.font,cw-pad*2),x+pad,yy+u(4));
+  ctx.fillStyle="#fef2f2"; ctx.fillRect(x,y+h-u(32),cw,u(32));
+  ctx.fillStyle="#7f1d1d"; ctx.font=P(u(13))+"px sans-serif";
+  const sign=[].concat(o.fields.unit1?[d.unit1]:[], (o.fields.who&&d.who)?["责任人："+d.who]:[]).join("　");
+  ctx.fillText(fitText(ctx,sign||"责任单位签收：",ctx.font,cw-pad*2),x+pad,y+h-u(11));
+  ctx.restore(); return {w:cw,h:h};
+}}];
+
+function tplById(id){ return TPL.find(t=>t.id===id)||TPL[0]; }
+function posF(pos){ const m={tl:[0,0],lm:[0,.5],bl:[0,1],tr:[1,0],rm:[1,.5],br:[1,1]};
+  return m[pos]||[wmPos.fx,wmPos.fy]; }   // 拖动过（pos=free）就按 fx,fy 落点
+let wmBox=null;                           // 上一次绘制的水印占位（画布像素），用于"点到水印才算点到"
+/* 统一入口：按位置算出落点再交给模板画 */
+function drawWm(ctx,W,H,d,o){
+  const t=tplById(o.tpl); const [px,py]=posF(o.pos);
+  const size=t.draw(ctx,W,H,px,py,d,o);
+  wmBox={x:Math.round(px*(W-size.w)), y:Math.round(py*(H-size.h)), w:size.w, h:size.h, W:W, H:H};
+  return size;
+}
+/* 本机自测用假画面：headless/无摄像头时合成一张"工地照片"当作取景画面 */
+let MOCKIMG=null;
+function mockFrame(){
+  const c=document.createElement("canvas"); c.width=1080; c.height=1440; const x=c.getContext("2d");
+  const g=x.createLinearGradient(0,0,1080,1440); g.addColorStop(0,"#93a0a8"); g.addColorStop(.45,"#5f6a72"); g.addColorStop(1,"#333c43");
+  x.fillStyle=g; x.fillRect(0,0,c.width,c.height);
+  x.globalAlpha=.16; x.fillStyle="#fff";
+  for(let i=0;i<170;i++){ x.fillRect(Math.random()*1080,Math.random()*1440,Math.random()*190,4); }
+  x.globalAlpha=1; x.fillStyle="#454e55"; x.fillRect(0,1120,c.width,320);
+  x.fillStyle="rgba(255,255,255,.10)"; x.fillRect(120,980,380,120); x.fillRect(620,1010,320,90);
+  MOCKIMG=c; document.getElementById("vd").style.background="url("+c.toDataURL("image/jpeg",.85)+") center/cover";
+}
+/* 预览层与视频画面严格对齐（object-fit:contain 的显示矩形） */
+let wmVw=0, wmVh=0, wmDirty=true, wmLastMin="", frameAR=0, hiresTries=0;   /* v42：重开流的次数上限 */   /* v37：frameAR=取景点宽高比（出图按它中心裁切） */
+function fitWmCv(){
+  const vd=document.getElementById("vd"), cv=document.getElementById("wmCv"), st=document.getElementById("stage");
+  const r=st.getBoundingClientRect();
+  /* ★ v30：视频还没到就用"目标比例"，别用 16×9 的临时值，否则视频一到画布要重设 → 就是那一下跳 */
+  const _aw=arWH(camAR,1080);
+  const vw=vd.videoWidth||(MOCKIMG?MOCKIMG.width:_aw.w), vh=vd.videoHeight||(MOCKIMG?MOCKIMG.height:_aw.h);
+  /* v37：横屏视频是 cover 填满，画布就取整个取景区（水印坐标=可见范围，所见即所得） */
+  const _lsCv = !!(window.matchMedia && matchMedia("(orientation:landscape)").matches);
+  const sc = _lsCv ? Math.max(r.width/vw, r.height/vh) : Math.min(r.width/vw, r.height/vh);
+  let w = _lsCv ? Math.round(r.width) : Math.round(vw*sc), h = _lsCv ? Math.round(r.height) : Math.round(vh*sc);
+  frameAR = w/Math.max(1,h);
+  const dpr=Math.min(3, window.devicePixelRatio||1);   /* ★ v14：原来封顶2倍，3x屏（iPhone）上会被放大1.5倍→水印发虚 */
+  const pw=Math.round(w*dpr), ph=Math.round(h*dpr);
+  /* ★ v29：取景区"小幅变化"（iOS 首次触摸收起工具栏、地址栏伸缩等）不重设画布 ——
+     否则水印会跳一下、旧帧还会残留一瞬（用户看到的就是"底下压着另一层水印"）。
+     同时：拖动水印过程中绝不重设画布。 */
+  const ow=Number(cv.dataset.lw)||0, oh=Number(cv.dataset.lh)||0;
+  const cssSame = ow>0 && oh>0 && Math.abs(w-ow)/ow<0.03 && Math.abs(h-oh)/oh<0.03
+                  && Math.abs((w/h)-(ow/oh))/(ow/oh)<0.015;
+  const backingBad = (pw!==wmVw) || (ph!==wmVh);   /* v41：位图密度不对（换入口/dpr 变化/首次）→ 必须补，否则被浏览器放大 = 发虚 */
+  if(wmDragging) return false;                      /* 拖动水印时不动画布 */
+  if(cssSame && !backingBad) return false;          /* 真的没变化 → 什么都不做（不闪） */
+  if(!cssSame){                                     /* 只有 CSS 尺寸真变了才挪位置/改大小（会跳屏的那种） */
+    cv.style.left=(_lsCv?0:Math.round((r.width-w)/2))+"px"; cv.style.top=(_lsCv?0:Math.round((r.height-h)/2))+"px";
+    cv.style.width=w+"px"; cv.style.height=h+"px";
+  }
+  cv.width=pw; cv.height=ph; cv.dataset.lw=w; cv.dataset.lh=h;
+  wmVw=pw; wmVh=ph; return {w,h};
+}
+let wmOptUse=null, WM_WF=1, wmFitK=1;   /* v34：WM_WF=宽度上限系数，wmFitK=当前整体缩放（拍照/录像跟随预览） */          /* v32：预览/拍照/录像统一使用的（按画面适配过的）水印参数 */
+function drawWmAny(ctx,W,H){        /* v34：预览/拍照/录像统一入口（带同一套适配系数） */
+  const k = wmFitK || 1; WM_WF = k;
+  try{ drawWm(ctx,W,H,wmData(), wmOptUse || wmOpt); }finally{ WM_WF = 1; }
+}
+function paintPreview(){
+  const cv=document.getElementById("wmCv"); if(!cv.width) return;
+  const ctx=cv.getContext("2d");
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality="high";   /* ★ v14：LOGO 图片缩放更细腻 */
+  ctx.clearRect(0,0,cv.width,cv.height);                 // 清+画在同一帧完成，画面不会空一拍
+  try{
+    /* v32：卡片放不下就按比例缩（只缩不放）—— 横屏/扁画面时不会超出取景框；预览与出图用同一份参数 */
+    let o = wmOpt;
+    drawWm(ctx,cv.width,cv.height,wmData(),o);
+    /* v36：水印宽度横竖屏"同一套比例" —— 一律按画面短边取 60%
+       竖屏短边=宽 → 与原来完全一致；横屏短边=高 → 卡片整体等比缩，形状跟竖屏一模一样，只是没那么宽 */
+    const isLs = !!(window.matchMedia && matchMedia("(orientation:landscape)").matches);
+    const capW = (isLs && cv.width > cv.height) ? (0.60*cv.height/cv.width) : 0.62;
+    let k = 1;
+    WM_WF = 1;
+    for(let i=0;i<3 && wmBox;i++){
+      const kH = wmBox.h > cv.height*0.78 ? (cv.height*0.74)/wmBox.h : 1;
+      const kW = wmBox.w > cv.width*capW   ? (cv.width*capW)/wmBox.w     : 1;
+      const kk = Math.min(kH,kW);
+      if(kk >= 0.995) break;
+      k = Math.max(0.3, k*kk);   /* v37: lower the floor so landscape can reach 60% of short side */
+      ctx.clearRect(0,0,cv.width,cv.height);
+      WM_WF = k;
+      drawWm(ctx,cv.width,cv.height,wmData(),Object.assign({},o,{scale:wmOpt.scale*k}));
+    }
+    wmFitK = k; WM_WF = 1;
+    wmOptUse = Object.assign({}, wmOpt, {scale: wmOpt.scale*k});
+  }catch(e){ console.error("wm draw error:",e); }
+  wmDirty=false; wmLastMin=nowStr();
+  const chip=document.getElementById("chipTpl"); if(chip) chip.textContent=tplById(wmOpt.tpl).name;
+}
+function refreshWm(){ paintPreview(); }
+setTimeout(()=>{ try{ fitWmCv(); paintPreview(); }catch(e){} }, 60);
+try{ syncPrefsFromServer(); }catch(e){}   /* v41：进页面就把服务器上的设置拉回来 */
+
+/* ============ v38：真机数据面板（?diag=1 才出现，平时完全不显示） ============ */
+(function(){
+  if(!/[?&]diag=1/.test(location.search)) return;
+  function box(){ 
+    let el=document.getElementById("diagBox");
+    if(!el){
+      el=document.createElement("div"); el.id="diagBox";
+      el.style.cssText="position:fixed;left:4px;top:4px;z-index:999;max-width:96%;background:rgba(0,0,0,.86);color:#7CFC00;"
+        +"font:11px/1.5 ui-monospace,Menlo,monospace;padding:6px 8px;border-radius:8px;white-space:pre-wrap;pointer-events:none";
+      document.body.appendChild(el);
+    }
+    return el;
+  }
+  function val(){
+    const R=[], st=document.getElementById("stage"), cv=document.getElementById("wmCv"), vd=document.getElementById("vd");
+    const s=st.getBoundingClientRect(), c=cv.getBoundingClientRect();
+    let tk=null; try{ tk=(stream&&stream.getVideoTracks)?stream.getVideoTracks()[0]:null; }catch(e){}
+    let set={}; try{ set=(tk&&tk.getSettings)?tk.getSettings():{}; }catch(e){}
+    const isLs=!!(window.matchMedia&&matchMedia("(orientation:landscape)").matches);
+    R.push("v38 diag  "+new Date().toTimeString().slice(0,8));
+    R.push("屏 "+window.innerWidth+"x"+window.innerHeight+" dpr"+(window.devicePixelRatio||1)+" "+(isLs?"横屏":"竖屏"));
+    R.push("取景区 "+Math.round(s.width)+"x"+Math.round(s.height)+"  画布CSS "+Math.round(c.width)+"x"+Math.round(c.height));
+    R.push("视频原生 "+(vd.videoWidth||0)+"x"+(vd.videoHeight||0)+"  流 "+(set.width||"?")+"x"+(set.height||"?")+" "+ (set.facingMode||""));
+    R.push("画布位图 "+cv.width+"x"+cv.height+"  frameAR="+(frameAR||0).toFixed(3));
+    if(wmBox) R.push("水印 "+Math.round(wmBox.w)+"x"+Math.round(wmBox.h)+"  占宽"+(wmBox.w/cv.width*100).toFixed(1)+"% 占短边"+(wmBox.w/Math.min(cv.width,cv.height)*100).toFixed(1)+"%  系数"+(wmFitK||1).toFixed(2));
+    R.push("模式="+mode+" 焦距="+(camZoom||1).toFixed(1)+" 比例="+camAR+" 模板="+wmOpt.tpl+" 不透明="+Math.round((wmOpt.alpha||1)*100)+"%");
+    R.push("镜头 "+(camLabels.length?camLabels.join(" / ").slice(0,90):"（未读到）"));
+    return R.join("\n");
+  }
+  box();
+  setInterval(()=>{ try{ box().textContent=val(); }catch(e){ box().textContent="diag err: "+e.message; } },400);
+})();   /* v30：进来就定型，不等视频 */
+/* v23：两指捏合调焦距（单指不受影响，拖水印/点屏照旧） */
+(function(){
+  const st=document.getElementById("stage"); if(!st) return;
+  let d0=0, z0=1, act=false;
+  const dist=t=>{ const a=t[0], b=t[1]; return Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY)||1; };
+  st.addEventListener("touchstart", e=>{ if(e.touches.length===2){ act=true; d0=dist(e.touches); z0=camZoom; } }, {passive:true});
+  st.addEventListener("touchmove", e=>{
+    if(e.touches.length!==2) return;
+    if(!act){ act=true; d0=dist(e.touches); z0=camZoom; }      /* v27：两指不必严格同时落下，落下即接管 */
+    e.preventDefault();
+    const r=dist(e.touches)/Math.max(1,d0);
+    if(Math.abs(r-1)>0.02) setZoom(z0*r);                       /* 动一点点就跟随 */
+  }, {passive:false});
+  st.addEventListener("touchend", e=>{ if(e.touches.length<2) act=false; }, {passive:true});
+  st.addEventListener("touchcancel", ()=>{ act=false; }, {passive:true});
+  /* v26：Safari 的专有手势事件（两指捏合会走这里，不处理就被它当成网页缩放） */
+  st.addEventListener("gesturestart", e=>{ e.preventDefault(); act=true; d0=0; z0=camZoom; }, {passive:false});
+  st.addEventListener("gesturechange", e=>{
+    e.preventDefault();
+    if(!act) { act=true; z0=camZoom; }
+    if(e.scale>0) setZoom(z0*e.scale);
+  }, {passive:false});
+  st.addEventListener("gestureend", e=>{ e.preventDefault(); act=false; }, {passive:false});
+  document.addEventListener("gesturestart", e=>{ if(e.target.closest && e.target.closest("#stage")) e.preventDefault(); }, {passive:false});
+})();
+/* 每秒只做"要不要重画"的判断：尺寸变了/分钟变了/设置改了才重画，避免闪烁 */
+setInterval(()=>{
+  if(mode!=="photo"||recOn||!started) return;
+  const resized=fitWmCv();
+  const cv0=document.getElementById("wmCv");
+  const bad = !wmBox || !isFinite(wmBox.x) || wmBox.W!==cv0.width || wmBox.H!==cv0.height;   // ★ 占位框与画布不同步 → 自愈
+  if(resized||wmDirty||bad||nowStr()!==wmLastMin) paintPreview();
+},1000);
+
+/* ==================== 设置面板 ==================== */
+let sCat="all";
+function buildCatRow(){
+  const r=document.getElementById("catRow"); r.innerHTML="";
+  for(const [k,n] of CATS){ const d=document.createElement("div"); d.textContent=n; if(sCat===k)d.className="on";
+    d.onclick=()=>{ sCat=k; buildCatRow(); buildTplRow(); }; r.appendChild(d); }
+}
+function buildTplRow(){
+  const row=document.getElementById("tplRow"); row.innerHTML="";
+  for(const t of TPL.filter(x=>sCat==="all"||x.cat===sCat)){
+    const wrap=document.createElement("div"); wrap.className="t"+(wmOpt.tpl===t.id?" on":"");
+    const cv=document.createElement("canvas"); cv.width=288; cv.height=420;
+    const nm=document.createElement("div"); nm.className="n"; nm.textContent=t.name;
+    wrap.appendChild(cv); wrap.appendChild(nm);
+    wrap.onclick=()=>{ wmDirty=true; wmOpt.tpl=t.id; savePref(); buildTplRow(); paintPreview(); };
+    row.appendChild(wrap);
+    const cx=cv.getContext("2d");
+    cx.fillStyle="#3a434b"; cx.fillRect(0,0,288,420);
+    cx.save(); cx.scale(1,1);
+    try{ drawWm(cx,288,420,wmData(),Object.assign({},wmOpt,{tpl:t.id,scale:Math.max(.85,wmOpt.scale),alpha:1})); }catch(e){}
+    cx.restore();
+  }
+}
+/* 画面比例：决定取流与存图的长宽比（4:3 像手机相机 / 16:9 拍全景 / 1:1 方图） */
+const ARS=[["4:3",4,3],["16:9",16,9],["1:1",1,1]];
+let camAR="16:9";   /* v16：默认按 16:9 取流/存图（他指定） */
+function arWH(ar,base){                      // base=短边目标像素
+  const p=(ARS.find(x=>x[0]===ar)||ARS[0]);
+  return (p[1]>=p[2]) ? {w:base*p[1]/p[2], h:base} : {w:base, h:base*p[2]/p[1]};
+}
+function buildArRow(){
+  const r=document.getElementById("arRow"); if(!r) return; r.innerHTML="";
+  for(const [n] of ARS){ const d=document.createElement("div"); d.textContent=n; if(camAR===n)d.className="on";
+    d.onclick=()=>{ camAR=n; const v=document.getElementById("arVal"); if(v) v.textContent=n;
+      savePref(); buildArRow(); restartCam(); }; r.appendChild(d); }
+}
+function restartCam(){ if(MOCK) return; stopAll(); setTimeout(()=>{ startCam(); },120); }
+function buildPosRow(){
+  const r=document.getElementById("posRow"); r.innerHTML="";
+  for(const[p,n]of POSES){ const d=document.createElement("div"); d.textContent=n; if(wmOpt.pos===p)d.className="on";
+    d.onclick=()=>{ wmDirty=true; wmOpt.pos=p; savePref(); buildPosRow(); paintPreview(); }; r.appendChild(d); }
+}
+function buildFldRow(){
+  const r=document.getElementById("fldRow"); r.innerHTML="";
+  for(const[k,n]of FLDS){ const d=document.createElement("div"); d.textContent=n; if(wmOpt.fields[k])d.className="on";
+    d.onclick=()=>{ wmDirty=true; wmOpt.fields[k]=wmOpt.fields[k]?0:1; savePref(); buildFldRow(); paintPreview(); }; r.appendChild(d); }
+}
+function onScale(v){ wmDirty=true; wmOpt.scale=Number(v)/100; document.getElementById("scaleVal").textContent=v+"%"; savePref(); paintPreview(); }
+function onAlpha(v){ wmDirty=true; wmOpt.alpha=Number(v)/100; document.getElementById("alphaVal").textContent=v+"%"; savePref(); paintPreview(); }
+let sTab="content";
+function showTab(t){ sTab=t;
+  document.querySelectorAll("#sheet .tabs div").forEach(d=>d.classList.toggle("on", d.dataset.tab===t));
+  document.querySelectorAll("#sheet .pane").forEach(p=>p.classList.toggle("on", p.id==="pane-"+t));
+  if(t==="tpl"){ buildCatRow(); buildTplRow(); } else if(t==="style"){ buildArRow(); buildPosRow(); } else buildFldRow();
+}
+function openSheet(t){ if(recOn) return;
+  document.getElementById("scaleVal").textContent=Math.round(wmOpt.scale*100)+"%";
+  document.getElementById("alphaVal").textContent=Math.round(wmOpt.alpha*100)+"%";
+  document.getElementById("rScale").value=Math.round(wmOpt.scale*100);
+  document.getElementById("rAlpha").value=Math.round(wmOpt.alpha*100);
+  document.getElementById("edProject").value=CFG.project;   /* v40 */
+  document.getElementById("edArea").value=area; document.getElementById("edContent").value=content;
+  document.getElementById("edPlace").value=place; document.getElementById("edWho").value=who;
+  document.getElementById("edRoute").value=route; document.getElementById("edPart").value=part;
+  document.getElementById("edBuilder").value=builder; document.getElementById("edUnit1").value=unit1v;
+  document.getElementById("edUnit2").value=unit2v; document.getElementById("edDesigner").value=designer;
+  document.getElementById("edSurveyor").value=surveyor; document.getElementById("edDuty1").value=duty1;
+  document.getElementById("edDuty2").value=duty2; document.getElementById("edRemark").value=remark;
+  document.getElementById("edFoot").value=footTxt;
+  showTab(t||sTab||"content");
+  document.getElementById("sheet").style.display="block";
+}
+function closeSheet(){ const sh=document.getElementById("sheet"); if(sh) sh.style.display="none";
+  try{ paintPreview(); }catch(_){}          /* ★ 收起后也重画一次：与"完成"路径状态一致，避免占位框/画布不同步 */
+}
+/* 点画面上任意位置（设置面板以外）→ 面板自己收起 */
+function bindTapClose(){
+  const st=document.getElementById("stage"); if(!st || st.__tapclose) return; st.__tapclose=true;
+  let wasOpen=false;
+  st.addEventListener("pointerdown", ()=>{                        /* 这一手按下去时，面板是不是已经开着 */
+    const sh=document.getElementById("sheet"); wasOpen=!!(sh && sh.style.display==="block");
+  }, true);
+  st.addEventListener("click", ev=>{
+    const sh=document.getElementById("sheet");
+    if(!sh || sh.style.display!=="block") return;                 // 没开着就不管
+    if(!wasOpen) return;                                          /* ★ 这一手刚把面板点开（点水印）→ 不许同一手又关掉 */
+    const t=ev.target;
+    if(t && (t.id==="wmCv" || t.id==="vd")) return;               // 水印/画面上的轻点另有动作（打开面板）
+    if(t && t.closest && t.closest(".chipbar,#tipbar,#camGuide,#timer,#sheet")) return;
+    closeSheet();
+  });
+}
+function saveSheet(){
+  const _pj=document.getElementById("edProject").value.trim(); if(_pj) CFG.project=_pj;   /* v40：项目名称（必填项） */
+  area=document.getElementById("edArea").value.trim();
+  content=document.getElementById("edContent").value.trim();
+  const p=document.getElementById("edPlace").value.trim(); if(p) place=p;
+  route=document.getElementById("edRoute").value.trim();
+  who=document.getElementById("edWho").value.trim();
+  part=document.getElementById("edPart").value.trim();
+  builder=document.getElementById("edBuilder").value.trim();
+  const _u1=document.getElementById("edUnit1").value.trim(); if(_u1) unit1v=_u1;
+  const _u2=document.getElementById("edUnit2").value.trim(); if(_u2) unit2v=_u2;
+  designer=document.getElementById("edDesigner").value.trim();
+  surveyor=document.getElementById("edSurveyor").value.trim();
+  duty1=document.getElementById("edDuty1").value.trim(); duty2=document.getElementById("edDuty2").value.trim();
+  remark=document.getElementById("edRemark").value.trim();
+  const _ft=document.getElementById("edFoot").value.trim(); if(_ft) footTxt=_ft;
+  savePref(); closeSheet(); paintPreview();
+}
+
+/* ---------- 水印拖动 ---------- */
+function bindWm(){
+  const cv=document.getElementById("wmCv");
+  if(cv.__bound) return; cv.__bound=true;          // 只绑一次（相机启动/开机各调一次也不重复）
+  let sx=0, sy=0, moved=false, box0=null;
+  const pxScale=()=>cv.width/Math.max(1,Number(cv.dataset.lw)||cv.width);   // CSS 像素 → 画布像素
+  /* ★ v13：监听只绑一次；pointercancel 兜底；占位框坏了先自愈再判定（避免"再点水印没反应"） */
+  let wmActive=false, wmMoved=false, wmSX=0, wmSY=0, wmB0=null;
+  function boxOK(b){ return !!b && isFinite(b.x)&&isFinite(b.y)&&isFinite(b.w)&&isFinite(b.h) && b.w>2 && b.h>2; }
+  function ensureWmBox(cv){
+    if(!boxOK(wmBox) || wmBox.W!==cv.width || wmBox.H!==cv.height){ try{ paintPreview(); }catch(_){} }
+    return boxOK(wmBox);
+  }
+  cv.addEventListener("pointerdown", e=>{
+    if(!ensureWmBox(cv)) return;
+    const r=cv.getBoundingClientRect(), s=pxScale();
+    const px=(e.clientX-r.left)*s, py=(e.clientY-r.top)*s, m=22*s;      // 22 设备像素容差，手指好点
+    if(px<wmBox.x-m||px>wmBox.x+wmBox.w+m||py<wmBox.y-m||py>wmBox.y+wmBox.h+m) return;  // 没点到水印：不响应
+    e.preventDefault(); try{ cv.setPointerCapture(e.pointerId); }catch(_){}
+    wmActive=true; wmMoved=false; wmSX=e.clientX; wmSY=e.clientY; wmDragging=true;
+    wmB0={x:wmBox.x, y:wmBox.y, w:wmBox.w, h:wmBox.h};
+  }, {passive:false});
+  cv.addEventListener("pointermove", e=>{
+    if(!wmActive) return;
+    const dx=e.clientX-wmSX, dy=e.clientY-wmSY;
+    if(!wmMoved && (Math.abs(dx)>6||Math.abs(dy)>6)) wmMoved=true;
+    if(!wmMoved) return;
+    const s2=pxScale();
+    wmPos.fx=Math.max(0,Math.min(1, (wmB0.x+dx*s2)/Math.max(1,cv.width-wmB0.w)));
+    wmPos.fy=Math.max(0,Math.min(1, (wmB0.y+dy*s2)/Math.max(1,cv.height-wmB0.h)));
+    wmOpt.pos="free"; paintPreview();
+    if(e.cancelable) e.preventDefault();
+  }, {passive:false});
+  function wmEnd(e, cancelled){
+    if(!wmActive) return;                       // 没有进行中的手势 → 直接忽略（不会污染状态）
+    const movedNow=wmMoved; wmActive=false; wmMoved=false; wmDragging=false;
+    try{ cv.releasePointerCapture(e.pointerId); }catch(_){}
+    if(movedNow){ try{ savePref(); }catch(_){} }
+    else if(!cancelled){ openSheet("content"); } // 轻点=打开设置；被系统取消就当没发生
+  }
+  cv.addEventListener("pointerup", e=>wmEnd(e,false));
+  cv.addEventListener("pointercancel", e=>wmEnd(e,true));        /* ★ iOS 手势被接管时不会给 pointerup */
+  window.addEventListener("blur", ()=>{ wmActive=false; wmMoved=false; });
+  document.addEventListener("visibilitychange", ()=>{ if(document.hidden){ wmActive=false; wmMoved=false; } });
+}
+
+/* ---------- 坐标（定位/天气） ---------- */
+function getLoc(){return new Promise((ok,fail)=>{
+  if(!navigator.geolocation){fail("浏览器不支持定位");return;}
+  let best=null, tries=0;
+  const attempt=()=>{ tries++;
+    navigator.geolocation.getCurrentPosition(p=>{
+      const acc=p.coords.accuracy||9999;
+      if(!best||acc<best.acc) best={latitude:p.coords.latitude, longitude:p.coords.longitude, acc:acc,
+        alt:(p.coords.altitude!=null?p.coords.altitude:null), spd:(p.coords.speed!=null?p.coords.speed:null)};
+      if(tries>=3){ best?ok(best):fail("定位失败"); } else setTimeout(attempt,600);
+    }, ()=>{ if(tries>=3){ best?ok(best):fail("定位失败(已重试3次)"); } else setTimeout(attempt,600); },
+    {enableHighAccuracy:true,timeout:10000,maximumAge:0});
+  };
+  attempt();
+});}
+async function fetchAll(){
+  try{
+    const c=await getLoc();
+    coords={lat:c.latitude.toFixed(6),lng:c.longitude.toFixed(6),alt:(c.alt!=null?c.alt:null),spd:(c.spd!=null?c.spd:null),hd:(c.hd!=null?c.hd:null)};
+    const [w,g]=await Promise.all([fetch("/api/weather?lat="+coords.lat+"&lng="+coords.lng).then(r=>r.json()),fetch("/api/regeo?lat="+coords.lat+"&lng="+coords.lng).then(r=>r.json())]);
+    if(w.ok) weatherText=(w.text+" "+w.temp+"°C "+w.wind).trim();
+    if(g.ok&&g.label){place=g.label;placeText=g.label;} else {place=placeText=coords.lat+","+coords.lng;}
+  }catch(e){
+    coords=null;
+    try{const w=await fetch("/api/weather").then(r=>r.json());if(w.ok) weatherText=(w.text+" "+w.temp+"°C "+w.wind).trim();}catch(e2){}
+    place=placeText="未获取到定位";
+  }
+  paintPreview();
+}
+
+/* ---------- 相机 ---------- */
+/* ---------- 相机权限：一次授权，后面不再问 ---------- */
+let camDevId = "";
+try{ camDevId = localStorage.getItem("wc_cam_dev") || ""; }catch(e){}
+let camPermState = "unknown", permWired = false;
+async function queryCamPerm(){
+  try{
+    const p = await navigator.permissions.query({name:"camera"});
+    camPermState = p.state;                                  // granted / prompt / denied
+    if(!permWired){
+      permWired = true;
+      p.onchange = ()=>{ camPermState = p.state; if(p.state === "granted"){ hideCamGuide(); startCam(); } };
+    }
+  }catch(e){ camPermState = "unknown"; }                      // 部分浏览器不支持查询，按未知处理
+  if(typeof verLine === "function") verLine();
+  return camPermState;
+}
+function hideCamGuide(){ const g=document.getElementById("camGuide"); if(g) g.style.display="none"; }
+function showCamGuide(why){
+  const g=document.getElementById("camGuide"); if(!g) return;
+  const ua=navigator.userAgent||"", ios=/iPhone|iPad|iPod/.test(ua), wx=/MicroMessenger/.test(ua);
+  let steps;
+  /* v24：不再指引用户去系统/浏览器设置里放行（乱、也不安全），只讲"弹出时点允许" */
+  if(wx)        steps="微信里打开会每次都问：右上角「⋯」→ <b>在浏览器打开</b>（或「添加到主屏幕」），之后就不再问了。";
+  else          steps="浏览器弹出询问时，点「<b>允许</b>」即可。只需一次，本机以后打开都不再问。";
+  g.querySelector(".cg-why").textContent = why || "";
+  g.querySelector(".cg-steps").innerHTML = steps;
+  g.style.display = "flex";
+}
+
+let camZoom=1, wmDragging=false;                       /* v23：焦距（1.0~4.0）与"提分辨率只重开一次"开关 */
+function applyZoom(){
+  const vd=document.getElementById("vd"); if(!vd) return;
+  vd.style.transformOrigin="50% 50%";
+  vd.style.transform = camZoom>1.001 ? "scale("+camZoom+")" : "";
+  const z=document.getElementById("zoomVal"); if(z) z.textContent=camZoom.toFixed(1)+"×";
+}
+let ultraDevId="", mainDevId="", ultraOn=false, zoomPreset=1, lastGoodDevId="", lastGoodFacing="environment", camLabels=[];
+let camList=[], uwPicked="";                      /* v31：设备清单 + 用户选定的超广角 */
+try{ uwPicked = localStorage.getItem("wc_uw_dev") || ""; }catch(e){}
+function setZoom(v){ camZoom=Math.max(1,Math.min(4, Number(v)||1)); applyZoom(); syncZoomUI(); }
+function camListTxt(){ return camLabels.length ? camLabels.join(" / ") : "未读到名称"; }
+function syncZoomUI(){
+  const z = ultraOn ? 0.5 : camZoom; let best=1, bd=1e9;
+  [0.5,1,2,3,4].forEach(p=>{ const d=Math.abs(p-z); if(d<bd){ bd=d; best=p; } });
+  document.querySelectorAll(".zoomctl .zbtn").forEach(b=>{
+    const p=Number(b.dataset.z);
+    b.classList.toggle("on", p===best && (p!==0.5 || ultraOn));
+    if(p===0.5) b.classList.toggle("off", false);   /* v31：永远可点（点不出就让你选镜头） */
+  });
+}
+async function findUltraWide(){
+  /* v28：只认"明确写 ultra/超广角"且不是前置的镜头；挑不到就置灰 0.5×（宁可不给，也不能切错） */
+  try{
+    const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput" && d.deviceId);
+    camLabels = ds.map(d=>d.label||("未知"+(d.deviceId||"").slice(0,6)));
+    const isFront = d => /front|user|前置|自拍|facetime/i.test(d.label||"");
+    camList = ds.filter(d=>!isFront(d));      /* 供"选镜头"面板用：只列非前置 */
+    if(camList.length===0) camList = ds.slice();
+    if(ultraOn) { syncZoomUI(); return; }
+    /* 优先：标签明确写 ultra/超广角；其次：用户上次手动选的镜头 */
+    let uw = ds.find(d=>!isFront(d) && /(ultra|超广角)/i.test(d.label||""));
+    if(!uw && uwPicked){ uw = ds.find(d=>d.deviceId===uwPicked); }
+    if(uw && uw.deviceId!==camDevId){ ultraDevId=uw.deviceId; mainDevId=camDevId || lastGoodDevId; }
+    else { ultraDevId=""; }
+      }catch(e){ ultraDevId=""; }
+  syncZoomUI();
+}
+let lensHoldT=null;
+function lensHoldStart(){ lensHoldT=setTimeout(()=>{ lensHoldT=null; try{ localStorage.removeItem("wc_uw_dev"); }catch(e){} uwPicked=""; ultraDevId=""; flash("重新选镜头…"); openLensPicker(); }, 700); }
+function lensHoldEnd(){ if(lensHoldT){ clearTimeout(lensHoldT); lensHoldT=null; } }
+function openLensPicker(){
+  let el=document.getElementById("lensPicker");
+  if(!el){
+    el=document.createElement("div"); el.id="lensPicker";
+    el.style.cssText="position:fixed;inset:0;z-index:99;background:rgba(4,8,12,.72);display:flex;align-items:flex-end";
+    el.innerHTML='<div style="width:100%;max-height:76%;overflow:auto;background:#111820;border-radius:18px 18px 0 0;padding:16px 14px 26px;border-top:1px solid rgba(255,255,255,.12)">'
+      +'<div style="font-size:15px;font-weight:800;color:#eaf2fa;margin-bottom:4px">选 0.5× 用哪个镜头</div>'
+      +'<div style="font-size:12px;color:#8ea3b8;line-height:1.6;margin-bottom:12px">本机浏览器没报出"超广角"的名字。<br>逐个点一下，<b style="color:#ffd666">看着视野最宽（画面最远最小）的那个</b>就是 0.5×；选完会记住，下次一点 0.5× 直接切。</div>'
+      +'<div id="lensList"></div>'
+      +'<div id="lensReset" style="margin-top:4px;text-align:center;color:#ffd666;font-size:13px;padding:12px;background:rgba(255,214,102,.1);border-radius:12px">镜头状态乱了？点这里复位成"后置主摄"</div>'
+      +'<div id="lensCancel" style="margin-top:8px;text-align:center;color:#9fb3c8;font-size:13px;padding:12px;background:rgba(255,255,255,.06);border-radius:12px">取消</div></div>';
+    document.body.appendChild(el);
+    el.addEventListener("click", e=>{ if(e.target===el) closeLensPicker(); });
+    document.getElementById("lensCancel").addEventListener("click", closeLensPicker);
+    document.getElementById("lensReset").addEventListener("click", ()=>{
+      closeLensPicker(); ultraOn=false; ultraDevId=""; uwPicked=""; camDevId=""; facing="environment";
+      try{ localStorage.removeItem("wc_cam_dev"); localStorage.removeItem("wc_uw_dev"); }catch(e){}
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+      setZoom(1); syncZoomUI(); startCam(); flash("已复位为后置主摄");
+    });
+  }
+  const list=document.getElementById("lensList"); list.innerHTML="";
+  const items = camList.length? camList : [];
+  if(!items.length){ list.innerHTML='<div style="color:#8ea3b8;font-size:13px">没读到摄像头列表，请先把相机开起来再试。</div>'; }
+  items.forEach((d,i)=>{
+    const b=document.createElement("div");
+    b.style.cssText="padding:14px;margin-bottom:8px;border-radius:12px;background:rgba(255,255,255,.07);color:#e8f1fa;font-size:14px;font-weight:600";
+    b.textContent = (i+1)+". " + (d.label || ("摄像头 "+(i+1))) + (d.deviceId===camDevId ? "（当前）" : "");
+    b.addEventListener("click", ()=>chooseLens(d.deviceId));
+    list.appendChild(b);
+  });
+  el.style.display="flex";
+}
+function closeLensPicker(){ const el=document.getElementById("lensPicker"); if(el) el.style.display="none"; }
+async function chooseLens(devId){
+  closeLensPicker();
+  uwPicked = devId; ultraDevId = devId;
+  try{ localStorage.setItem("wc_uw_dev", devId); }catch(e){}
+  pickZoom(0.5);
+}
+async function pickZoom(z){
+  try{
+    if(z===0.5){
+      if(!ultraDevId){ openLensPicker(); return; }        /* v31：让用户手动选一次，不再"点了没反应" */
+      if(!ultraOn){
+        const backDev = camDevId || lastGoodDevId;
+        if(!mainDevId) mainDevId = backDev;
+        camDevId = ultraDevId;
+        if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+        ultraOn = true; startCam();
+        setZoom(1); syncZoomUI();
+        /* v28：1 秒内校验，若变成自拍/没开起来 → 回主摄 + 置灰 0.5× */
+        setTimeout(()=>{
+          try{
+            const tk = stream && stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
+            const s = tk && tk.getSettings ? tk.getSettings() : {};
+            const bad = !tk || tk.readyState!=="live" || s.facingMode==="user";
+            if(bad){
+              camDevId = backDev; ultraOn=false; ultraDevId="";
+              try{ localStorage.removeItem("wc_uw_dev"); }catch(_){} uwPicked="";
+              if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+              startCam(); syncZoomUI();
+              flash("这台手机没找到超广角镜头，已回到主摄（" + camListTxt() + "）", true);
+            }
+          }catch(e){}
+        }, 1100);
+      } else { setZoom(1); syncZoomUI(); }
+      return;
+    }
+    if(ultraOn){ camDevId=mainDevId||camDevId; ultraOn=false;
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } startCam(); }
+    /* v31：点 1× 必须是"后置主摄" —— 如果之前镜头状态乱了（停在别的不认识的镜头上）就复位 */
+    else {
+      const tk = stream && stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
+      const s = tk && tk.getSettings ? tk.getSettings() : {};
+      const cur = (camList.find(d=>d.deviceId===camDevId)||{}).label || "";
+      if(s.facingMode==="user" || /front|user|前置|自拍/i.test(cur)){
+        camDevId=""; facing="environment";
+        try{ localStorage.removeItem("wc_cam_dev"); }catch(e){}
+        if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+        startCam(); flash("已切回后置主摄");
+      }
+    }
+    setZoom(z);
+  }catch(e){}
+}
+function srcRect(W,H){                                /* 拍照/录像共用的裁剪框（数码变焦=裁剪放大）；W/H 可显式传入便于自测 */
+  const vd=document.getElementById("vd");
+  W = W || (vd?vd.videoWidth:0); H = H || (vd?vd.videoHeight:0);
+  const z=Math.max(1,camZoom);
+  let sw=W/z, sh=H/z, sx=(W-sw)/2, sy=(H-sh)/2;
+  /* v38：撤回"按取景点比例裁照片"——照片保持相机原比例，不做宽带裁切 */
+  return {sx:sx, sy:sy, sw:sw, sh:sh};
+}
+async function ensureHiRes(tag){
+  /* 关键：二次进入时浏览器常给回 640x480 之类的低分辨率流 → 画面发虚。这里主动要求回目标分辨率 */
+  try{
+    const tk = stream && stream.getVideoTracks ? stream.getVideoTracks()[0] : null;
+    if(!tk) return;
+    const want = arWH(camAR, 1080);
+    const s = (tk.getSettings && tk.getSettings()) || {};
+    if((s.width||0) >= want.w*0.85 && (s.height||0) >= want.h*0.85) return;   // 已经够高，不动
+    try{ await tk.applyConstraints({width:{ideal:want.w},height:{ideal:want.h},aspectRatio:want.w/want.h}); }catch(e){}
+    const s2 = (tk.getSettings && tk.getSettings()) || {};
+    if((s2.width||0) >= want.w*0.7 && (s2.height||0) >= want.h*0.7) return;   /* 提上来了 */
+    if(hiresTries>=1) return;                                                /* 只重开一次，防死循环 */
+    hiresTries++;
+    /* v42：约束被忽略 → 重开一路流（同一页面内重开，权限已授权，不会再弹窗；比例不变，所以画面不会跳） */
+    try{
+      const vwant = {width:{ideal:want.w}, height:{ideal:want.h}, aspectRatio:want.w/want.h, facingMode:(facing||"environment")};
+      if(camDevId) vwant.deviceId = {exact:camDevId};
+      const ns = await navigator.mediaDevices.getUserMedia({video:vwant, audio:false});
+      const ntk = ns.getVideoTracks()[0];
+      const ns2 = (ntk && ntk.getSettings) ? ntk.getSettings() : {};
+      if(stream) stream.getTracks().forEach(t=>t.stop());
+      stream = ns; camDevId = ns2.deviceId || camDevId;
+      const vd=document.getElementById("vd"); vd.srcObject=stream; await vd.play().catch(()=>{});
+      started=true; fitWmCv(); paintPreview();
+    }catch(e){}
+    return;
+  }catch(e){}
+}
+
+/* 相机权限管理：一开直接复用活着的流；换镜头只换 deviceId；失败按错误类型给指引 */
+async function startCam(){
+  const vd=document.getElementById("vd");
+  const _qs=new URLSearchParams(location.search);   // 自己解析，不依赖后面才声明的 QS（避免 TDZ 报错导致相机不启动）
+  if(_qs.get("camguide")==="1"){ showCamGuide("（自测用）这个网址的相机权限被设成「不允许」了。"); return; }
+  if(!MOCK){
+    const st = await queryCamPerm();
+    if(st === "denied"){ showCamGuide("相机没有打开。请重新进入本页，弹出询问时点「允许」。"); return; }
+  }
+  if(stream && stream.getVideoTracks().some(t=>t.readyState==="live")){   // 已在播 → 直接复用，不重新申请授权
+          vd.srcObject=stream; await vd.play().catch(()=>{}); started=true; hideCamGuide(); applyZoom();
+      ensureHiRes("复用"); setTimeout(()=>{ensureHiRes("0.6秒");}, 600); setTimeout(()=>{ensureHiRes("2.5秒"); findUltraWide();}, 2500); return;
+  }
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  const _aw = arWH(camAR, 1080);                 /* v15：按"画面比例"请求分辨率（4:3→1440x1080 / 16:9→1920x1080 / 1:1→1080x1080） */
+  const _sz = {width:{ideal:Math.round(_aw.w)}, height:{ideal:Math.round(_aw.h)}};
+  const vwant = Object.assign({}, camDevId ? {deviceId:{exact:camDevId}} : {facingMode:{ideal:facing}}, _sz);
+  try{
+    if(!window.isSecureContext && !MOCK){ throw Object.assign(new Error("需要 https 打开"), {name:"InsecureContext"}); }
+    stream = await navigator.mediaDevices.getUserMedia({video:vwant, audio:false});   // 只申请视频，参数固定，避免"改条件又弹一次"
+    const tk = stream.getVideoTracks()[0], st2 = (tk&&tk.getSettings)?tk.getSettings():{};
+    if(st2.deviceId){ camDevId = st2.deviceId; lastGoodDevId = camDevId; try{ localStorage.setItem("wc_cam_dev", camDevId); }catch(e){} }
+    if(st2.facingMode) lastGoodFacing = st2.facingMode;
+      vd.srcObject=stream; await vd.play().catch(()=>{});
+      started=true; hideCamGuide(); fitWmCv(); bindWm(); paintPreview(); applyZoom();
+    ensureHiRes("首次");
+    setTimeout(()=>{ensureHiRes("0.6秒");}, 600); setTimeout(()=>{ensureHiRes("2.5秒"); findUltraWide();}, 2500);            /* v30：1 秒后不再动相机/画布，避免跳屏 */
+  }catch(e){
+    if(MOCK){ mockFrame(); fitWmCv(); paintPreview(); return; }
+    const n=(e&&e.name)||"";
+    if(n==="NotAllowedError" || n==="SecurityError"){
+      showCamGuide("相机权限被拒绝了，浏览器不会再自动弹窗。");
+    }else if(n==="NotFoundError" || n==="OverconstrainedError"){
+      /* v28：切镜头失败时绝不"清空 deviceId 裸开"（iOS 会掉到前置自拍）——
+         回到上一个能用的镜头，并强制后置 */
+      camDevId = lastGoodDevId || "";
+      facing = "environment";
+      try{ if(camDevId) localStorage.setItem("wc_cam_dev",camDevId); else localStorage.removeItem("wc_cam_dev"); }catch(_){}
+      flash("这个镜头打不开，已回到上一个镜头…",true); setTimeout(startCam,700);
+    }else if(n==="NotReadableError"){
+      flash("摄像头被其它 App 占用了，关掉相机/微信再点「我已允许，重试」",true);
+      showCamGuide("摄像头被别的程序占用了。");
+    }else if(n==="InsecureContext" || !window.isSecureContext){
+      flash("请用 https://syxj.vip.cpolar.cn 打开（http 或内网 IP 浏览器不给相机权限）",true);
+      showCamGuide("");
+    }else{
+      flash((e&&e.message)||"相机打开失败",true); showCamGuide("");
+    }
+  }
+}
+function backHome(){ stopAll(); location.href="/"; }
+function isStandalone(){
+  try{ return (window.matchMedia && (matchMedia('(display-mode:standalone)').matches || matchMedia('(display-mode:fullscreen)').matches)) || window.navigator.standalone===true; }catch(e){ return false; }
+}
+function showTip(html, ms){
+  const t=document.getElementById('tipbar'); if(!t) return;
+  t.innerHTML='<span class="x" onclick="document.getElementById(\'tipbar\').classList.remove(\'on\')">✕</span>'+html;
+  t.classList.add('on');
+  clearTimeout(showTip._t); showTip._t=setTimeout(()=>t.classList.remove('on'), ms||9000);
+}
+function isIOS(){ return /iPhone|iPad|iPod/.test(navigator.userAgent||"") || (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1); }
+function goFull(){
+  const el=document.documentElement, rq=el.requestFullscreen||el.webkitRequestFullscreen;
+  if(isIOS() && !isStandalone()){ tipAddHome(); return; }   // iPhone 上网页全屏不存在，直接给"添加到主屏幕"步骤
+  if(isStandalone()){
+    showTip('当前已经是<b>全屏 App</b>模式（没有地址栏和工具栏）✓');
+    return;
+  }
+  if(rq){
+    try{
+      const r=rq.call(el);
+      if(r&&r.then) r.then(()=>{},()=>{});
+      showTip('已切全屏；若底部还有浏览器工具栏，说明这个浏览器不支持网页全屏隐藏 —— 用下面的办法可彻底去掉。', 7000);
+      setTimeout(()=>{ if(!document.fullscreenElement&&!isStandalone()) tipAddHome(); }, 900);
+      return;
+    }catch(e){}
+  }
+  tipAddHome();
+}
+function tipAddHome(){
+  showTip('<b>想要没有浏览器页头/页底的全屏？</b><br>'+
+    '· <b>iPhone</b>：Safari 底部中间的「<b>分享</b>」按钮（方框里一个向上箭头）→ 菜单里选「<b>添加到主屏幕</b>」→ 右上「添加」；<br>'+
+    '&nbsp;&nbsp;以后从桌面那个「水印相机」图标进，就是全屏、没地址栏没工具栏，登录和相机权限也一直记住。<br>'+
+    '· 安卓：Chrome 右上「⋮」→ 添加到主屏幕；或直接点右上角全屏按钮。<br>'+
+    '· 微信里打开：右上「⋯」→ 在浏览器打开，再做上面的步骤。', 16000);
+}
+function verLine(){
+  const el=document.getElementById("verLine"); if(!el) return;
+  el.textContent = "版本 v42 · " + (isStandalone() ? "全屏App模式" : "浏览器模式")
+    + " · 相机权限:" + camPermState
+    + (camDevId ? " · 已记住摄像头" : "")
+    + " · 可视区 " + window.innerHeight + "px / 屏 " + (window.screen ? window.screen.height : "?") + "px";
+}
+function syncStandalone(){
+  const s=isStandalone();
+  document.body.classList.toggle('standalone', s);
+  if(!s){
+    let _n=0; try{ _n=parseInt(localStorage.getItem('wc_fs_prompt')||'0',10)||0; }catch(e){}
+    if(_n<1){ try{ localStorage.setItem('wc_fs_prompt', '1'); }catch(e){} setTimeout(tipAddHome, 1500); }
+  }
+  verLine();
+  if(s && window.visualViewport){ /* 全屏 App 下按真实视口重算水印画布 */
+    setTimeout(()=>{ if(typeof fitWmCv==='function') fitWmCv(true); if(typeof paintPreview==='function') paintPreview(); }, 120);
+  }
+}
+window.addEventListener('resize', ()=>{ if(typeof fitWmCv==='function') fitWmCv(); if(typeof paintPreview==='function') paintPreview(); });
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setTimeout(()=>{ if(typeof fitWmCv==='function') fitWmCv(true); if(typeof paintPreview==='function') paintPreview(); },150); });
+window.addEventListener('orientationchange', ()=>setTimeout(()=>{ if(typeof fitWmCv==='function') fitWmCv(true); if(typeof paintPreview==='function') paintPreview(); },350));
+async function flipCam(){
+  // 优先按 deviceId 精确切镜头（同一次授权内切换，不再弹窗）；拿不到设备列表就退回前置/后置切换
+  try{
+    const ds=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==="videoinput" && d.deviceId);
+    if(ds.length>=2){
+      const cur=ds.findIndex(d=>d.deviceId===camDevId);
+      const nx=ds[(cur+1+ds.length)%ds.length];
+      camDevId=nx.deviceId; try{ localStorage.setItem("wc_cam_dev",camDevId); }catch(e){}
+      if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+      startCam(); return;
+    }
+  }catch(e){}
+  facing=(facing==="environment")?"user":"environment"; startCam();
+}
+function stopAll(){ if(rafId){cancelAnimationFrame(rafId);rafId=null;} if(recTimer){clearInterval(recTimer);recTimer=null;} if(recorder&&recorder.state!=="inactive"){try{recorder.stop();}catch(e){}} if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;} }
+
+/* 拍照模式：预览所见即所得（水印层叠在视频上，坐标与拍摄帧一致） */
+function startPreviewPaint(){ paintPreview(); }
+
+/* ---------- 模式/快门 ---------- */
+function setMode(m){ mode=m; document.getElementById("mPhoto").classList.toggle("on",m==="photo"); document.getElementById("mVid").classList.toggle("on",m==="video"); document.getElementById("shIcon").textContent="";
+  document.getElementById("shutter").classList.toggle("vid", m==="video");   /* v18：录像模式内圆变红 */
+  const _ms=document.getElementById("mSys"), _mp=document.getElementById("mPhoto"), _mv=document.getElementById("mVid");
+  if(_ms) _ms.classList.toggle("on", m==="sys");            /* v26：系统相机模式 */
+  if(_mp&&m==="sys") _mp.classList.remove("on");
+  if(_mv&&m==="sys") _mv.classList.remove("on");
+  if(m==="sys"){ _vibOff(); document.getElementById("natCam").click(); }
+  document.getElementById("hint").textContent=(m==="photo"?"按住水印拖动 · 轻点水印改模板和内容":"点快门开始/停止录像 · 轻点水印改设置"); }
+document.getElementById("shutter").onclick=()=>{ if(mode==="sys"){ document.getElementById("natCam").click(); } else if(mode==="photo") doPhoto(); else doVideoToggle(); };
+
+const JPEG_Q=0.80, MAX_SIDE=2048;   /* v15：长边 1600→2048、质量 0.72→0.80，照片更清晰（单张约 400~600KB） */
+function doPhoto(){
+  const vd=document.getElementById("vd");
+  if((!vd||!vd.videoWidth)&&MOCKIMG){
+    const c=document.createElement("canvas"); c.width=MOCKIMG.width; c.height=MOCKIMG.height;
+    const x=c.getContext("2d"); const z=Math.max(1,camZoom);
+    const sw=MOCKIMG.width/z, sh=MOCKIMG.height/z;
+    x.drawImage(MOCKIMG,(MOCKIMG.width-sw)/2,(MOCKIMG.height-sh)/2,sw,sh,0,0,c.width,c.height);
+    drawWmAny(x,c.width,c.height);
+    pvKind="photo"; pvBlob=null;
+    c.toBlob(b=>{ showPv('<img class="pmedia" src="'+URL.createObjectURL(b)+'">', b); }, "image/jpeg", JPEG_Q);
+    return;
+  }
+  if(!vd||!vd.videoWidth){flash("相机未就绪",true);return;}
+  const W=vd.videoWidth,H=vd.videoHeight;
+  const R=srcRect();
+  const r=Math.min(1, MAX_SIDE/Math.max(R.sw,R.sh));    /* v37：按裁切范围算，不拉伸 */
+  const w=Math.max(1,Math.round(R.sw*r)), h=Math.max(1,Math.round(R.sh*r));
+  const c=document.createElement("canvas");c.width=w;c.height=h;
+  const ctx=c.getContext("2d");
+  ctx.drawImage(vd,R.sx,R.sy,R.sw,R.sh,0,0,w,h);      /* v23：按当前焦距裁剪 */
+  drawWmAny(ctx,w,h);
+  pvKind="photo"; pvBlob=null;
+  c.toBlob(b=>{ showPv('<img class="pmedia" src="'+URL.createObjectURL(b)+'">', b); }, "image/jpeg", JPEG_Q);
+}
+function natShot(inp){
+  /* v26：系统相机拍回来的原图 → 按长边压到 MAX_SIDE → 套同一套水印 → 走原来的预览/保存流程 */
+  const f = inp.files && inp.files[0]; if(!f){ return; }
+  const rd = new FileReader();
+  rd.onload = ()=>{
+    const im = new Image();
+    im.onload = ()=>{
+      const r = Math.min(1, MAX_SIDE/Math.max(im.width, im.height));
+      const w = Math.max(1, Math.round(im.width*r)), hh = Math.max(1, Math.round(im.height*r));
+      const c = document.createElement("canvas"); c.width=w; c.height=hh;
+      const x = c.getContext("2d"); x.drawImage(im, 0, 0, w, hh);
+      drawWmAny(x, w, hh);
+      pvKind="photo"; pvBlob=null;
+      c.toBlob(b=>{ showPv('<img class="pmedia" src="'+URL.createObjectURL(b)+'">', b); }, "image/jpeg", JPEG_Q);
+      flash("已套上水印，点「保存」入库");
+    };
+    im.onerror = ()=>flash("这张图读不出来", true);
+    im.src = rd.result;
+  };
+  rd.onerror = ()=>flash("读取失败", true);
+  rd.readAsDataURL(f);
+  inp.value = "";                      // 允许下次再拍同一张
+}
+function doVideoToggle(){
+  if(recOn){ stopRec(); return; }
+  const vd=document.getElementById("vd");
+  if(!vd||!vd.videoWidth){flash("相机未就绪",true);return;}
+  const _R0=srcRect(), W=Math.max(2,Math.round(_R0.sw)), H=Math.max(2,Math.round(_R0.sh));
+  recCanvas.width=W;recCanvas.height=H;
+  let mime="";
+  const cands=["video/mp4","video/webm","video/webm;codecs=vp9","video/webm;codecs=vp8"];
+  for(const c of cands){ if(window.MediaRecorder&&MediaRecorder.isTypeSupported(c)){mime=c;break;} }
+  if(!window.MediaRecorder){flash("此浏览器不支持录像（建议用 Chrome/Safari）",true);return;}
+  const cv=document.getElementById("wmCv"); cv.style.visibility="hidden";   // 录像走画布逐帧合成，避免双层
+  const draw=()=>{ if(!recOn){rafId=null;return;} const R=srcRect();
+    recCtx.drawImage(vd,R.sx,R.sy,R.sw,R.sh,0,0,W,H); drawWmAny(recCtx,W,H); rafId=requestAnimationFrame(draw); };
+  try{
+    const cs=recCanvas.captureStream(24);
+    recorder=new MediaRecorder(cs,{mimeType:mime||undefined,videoBitsPerSecond:4_000_000});
+  }catch(e){ cv.style.visibility="visible"; flash("录像初始化失败："+e.message,true); return; }
+  recChunks=[];
+  recorder.ondataavailable=e=>{ if(e.data&&e.data.size) recChunks.push(e.data); };
+  recorder.onstop=()=>{ pvKind="video"; const blob=new Blob(recChunks,{type:mime||"video/webm"}); recChunks=[];
+    cv.style.visibility="visible"; document.getElementById("timer").classList.remove("rec");
+    showPv('<video class="pmedia" controls playsinline src="'+URL.createObjectURL(blob)+'"></video>', blob); };
+  recOn=true; recSec=0; document.getElementById("tsec").textContent="00:00";
+  document.getElementById("shutter").classList.add("rec"); 
+  document.getElementById("timer").classList.add("rec");
+  recorder.start(500); recTimer=setInterval(()=>{recSec++;const m=String(Math.floor(recSec/60)).padStart(2,"0"),s=String(recSec%60).padStart(2,"0");document.getElementById("tsec").textContent=m+":"+s;},1000);
+  rafId=requestAnimationFrame(draw);
+  flash("● 正在录像，再点快门停止");
+}
+function stopRec(){
+  if(recorder&&recorder.state!=="inactive") recorder.stop();
+  if(recTimer){clearInterval(recTimer);recTimer=null;}
+  recOn=false; document.getElementById("shutter").classList.remove("rec");
+  document.getElementById("shIcon").textContent="";
+}
+
+/* ---------- 预览 / 保存 ---------- */
+function openAlbum(){ stopAll(); location.href="/album"; }
+function showPv(html,blob){ pvBlob=blob;
+  if(blob&&pvKind==="photo"){ const t=document.getElementById("thumb");
+    if(t){ t.classList.add("has"); t.style.backgroundImage="url("+URL.createObjectURL(blob)+")"; t.innerHTML=""; } } document.getElementById("pvMedia").innerHTML=html; document.getElementById("previewWrap").style.display="block"; document.getElementById("pvBar").style.display="flex"; hideSt(); }
+function backCam(){ stopRec(); document.getElementById("previewWrap").style.display="none"; document.getElementById("pvBar").style.display="none"; document.getElementById("pvMedia").innerHTML=""; pvBlob=null; pvKind=""; if(!stream){startCam();} else { paintPreview(); } }
+async function saveUp(){
+  if(!pvBlob){flash("没有内容",true);return;}
+  /* v40：项目名称必填 —— 没填就不让保存，直接把他带到那一栏 */
+  const _pjName=(CFG.project||"").trim();
+  if(!_pjName){
+    flash("请先填「项目名称」（必填，决定相册文件夹）", true);
+    try{ openSheet("content"); const e=document.getElementById("edProject"); if(e){ e.scrollIntoView({block:"center"}); e.focus(); } }catch(_){}
+    return;
+  }
+  const st=document.getElementById("st"); st.textContent="上传中…"; st.className="st"; st.style.display="block";
+  const isVid=pvKind==="video";
+  const blob=pvBlob;
+  const meta={project:_pjName,time:nowStr(),area:area,content:content,route:route,weather:weatherText,place:place||placeText,tpl:tplById(wmOpt.tpl).name,who:who,num:wmData().num,coords:coords?coords.lat+","+coords.lng:""};
+  const url=(isVid?"/api/video":"/api/photo")+"?"+new URLSearchParams(meta).toString();
+  const ext=isVid?((blob.type.indexOf("mp4")>=0)?"mp4":"webm"):"jpg";
+  const put=()=>new Promise(res=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST",url,true);
+    xhr.setRequestHeader("Content-Type",isVid?(blob.type||"video/webm"):"image/jpeg");
+    xhr.setRequestHeader("X-File-Ext",ext);
+    xhr.timeout=300000;
+    xhr.upload.onprogress=e=>{ if(e.lengthComputable){ const p=Math.round(e.loaded*100/e.total);
+      st.textContent="上传中… "+p+"%（"+(blob.size/1048576).toFixed(2)+"MB）"; } };
+    xhr.onload=()=>{ let j={}; try{j=JSON.parse(xhr.responseText);}catch(_){ } res(j); };
+    xhr.onerror=()=>res({ok:false,err:"网络错误"});
+    xhr.ontimeout=()=>res({ok:false,err:"超时"});
+    xhr.send(blob);
+  });
+  let j=null;
+  for(let i=1;i<=3;i++){
+    j=await put();
+    if(j&&j.ok) break;
+    if(i<3){ st.textContent="上传中断，正在重试（"+i+"/3）…"; await new Promise(r=>setTimeout(r,1500*i)); }
+  }
+  if(j&&j.ok){ st.innerHTML="✅ 已保存（"+(blob.size/1048576).toFixed(2)+"MB）："+j.file; setTimeout(()=>backHome(),1500); }
+  else { st.textContent="保存失败："+((j&&j.err)||"网络错误")+"（已重试3次，可再点保存）"; st.classList.add("err"); }
+}
+/* 提示 */
+let stTimer=null;
+function flash(msg,isErr){ const st=document.getElementById("st"); st.textContent=msg; st.className="st"+(isErr?" err":""); st.style.display="block"; clearTimeout(stTimer); stTimer=setTimeout(()=>{st.style.display="none";},3200); }
+function hideSt(){ const st=document.getElementById("st"); st.style.display="none"; }
+function logout(){ document.cookie="wc_auth=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/"; location.href="/login"; }
+window.addEventListener("pagehide",()=>stopAll());
+window.addEventListener("resize",()=>{ fitWmCv(); paintPreview(); });
+
+/* ---------- 启动 ---------- */
+if(MOCK){
+  area="示例区域A"; content="示例施工内容"; place="示例市 · 示例街道"; placeText=place;
+  weatherText="晴 24°C 东南风2级"; who="张三"; coords={lat:"39.904200",lng:"116.407400",hd:132};
+  part="示例分项"; builder="示例建设工程有限公司"; designer="示例设计院有限公司";
+  surveyor="示例勘察院"; duty1="李四"; duty2="王五"; remark="示例备注";
+} else { fetchAll(); }
+syncStandalone();
+bindTapClose();
+bindWm();          // 开机就绑：相机没起来也能拖水印
+startCam();
+const _q0=new URLSearchParams(location.search);
+if(_q0.get("tapclose")==="1"){ setTimeout(()=>{ const vd=document.getElementById("vd"); vd.dispatchEvent(new MouseEvent("click",{bubbles:true})); }, 2600); }   /* 自测：模拟点画面一下 */
+setTimeout(syncStandalone, 1500);
+const QS=new URLSearchParams(location.search);
+if(MOCK){ bindWm(); setTimeout(()=>{ const vd=document.getElementById("vd");
+            if(!vd.videoWidth){ mockFrame(); } fitWmCv(); if(QS.get("nosheet")!=="1") openSheet(QS.get("tab")||undefined); }, 1200);
+          if(QS.get("shot")==="1") setTimeout(()=>{ doPhoto(); }, 2200);
+          if(QS.get("tpl")) wmOpt.tpl=QS.get("tpl");
+                     if(QS.get("f")==="all"){ for(const k in wmOpt.fields) wmOpt.fields[k]=1; }
+          setTimeout(()=>{ paintPreview(); }, 1500); }
+</script>
+</body>
+</html>

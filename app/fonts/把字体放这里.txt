@@ -1,0 +1,7 @@
+这里需要放一个中文字体文件，文件名必须叫：NotoSansSC.otf
+
+下载地址（二选一，任选一个官方源）：
+  1) https://github.com/notofonts/noto-cjk/raw/main/Sans/OTF/SimplifiedChinese/NotoSansSC-Regular.otf
+  2) https://fonts.google.com/noto/specimen/Noto+Sans+SC  （下载后取 Regular 那一个 otf）
+
+（完整版安装包 nas-watermark-camera.zip 里已经带了这个字体，不用单独下。）

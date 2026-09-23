@@ -1,0 +1,12 @@
+[Unit]
+Description=Guoding Watermark Camera (8335)
+After=network.target
+
+[Service]
+WorkingDirectory=/fs/1000/ftp/DawnAI输出/水印相机
+ExecStart=/vol1/@apphome/hermes-agent/data/venv/bin/python3 server.py
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
