@@ -1,0 +1,23 @@
+# 运行时数据 —— 不进版本库
+users.json
+prefs.json
+amap_key.txt
+__thumbs/
+photos/
+
+# 上传的照片/视频
+*.jpg
+*.jpeg
+*.mp4
+*.webm
+
+# Python 缓存
+__pycache__/
+*.pyc
+
+# 备份文件
+*.bak
+*.bak_*
+
+# 系统
+.DS_Store
